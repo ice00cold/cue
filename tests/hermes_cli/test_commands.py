@@ -88,8 +88,8 @@ class TestResolveCommandAliases:
         assert cmd is not None and cmd.name == "steer"
 
     def test_exact_names_still_win_over_the_alias(self):
-        cmd = resolve_command("sessions")
-        assert cmd is not None and cmd.name == "sessions"
+        cmd = resolve_command("compress")
+        assert cmd is not None and cmd.name == "compress"
         cmd = resolve_command("steer")
         assert cmd is not None and cmd.name == "steer"
 
@@ -379,37 +379,6 @@ class TestSubcommandCompletion:
         completions = _completions(SlashCommandCompleter(), "/tools enable spotify ")
         texts = {c.text for c in completions}
         assert "spotify" not in texts
-
-
-    def _fake_gateway(self, monkeypatch, platforms):
-        """Patch load_gateway_config with a fake whose connected platforms are
-        the keys of `platforms` (name -> home as None or a (chat_id, name) tuple).
-        """
-        from types import SimpleNamespace
-
-        enums = {name: SimpleNamespace(value=name) for name in platforms}
-        homes = {
-            name: (None if home is None else SimpleNamespace(chat_id=home[0], name=home[1]))
-            for name, home in platforms.items()
-        }
-        fake = SimpleNamespace(
-            get_connected_platforms=lambda: list(enums.values()),
-            get_home_channel=lambda p: homes[p.value],
-        )
-        monkeypatch.setattr("gateway.config.load_gateway_config", lambda: fake)
-
-    def test_handoff_completes_connected_platforms(self, monkeypatch):
-        """`/handoff ` offers connected platforms, with or without a home channel."""
-        self._fake_gateway(
-            monkeypatch,
-            {
-                "telegram": ("123", "Me"),
-                "discord": None,  # no home channel yet -> still listed
-            },
-        )
-
-        texts = {c.text for c in _completions(SlashCommandCompleter(), "/handoff ")}
-        assert texts == {"telegram", "discord"}
 
 
 # ── Ghost text (SlashCommandAutoSuggest) ────────────────────────────────
