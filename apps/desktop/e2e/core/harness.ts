@@ -99,6 +99,8 @@ auxiliary:
     enabled: false
 approvals:
   mode: "${approvals}"
+onboarding:
+  run: false
 ${extra}`
 }
 
