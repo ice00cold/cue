@@ -56,8 +56,8 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 
 ### Phase 2 — Goals subsystem
 - [x] Goals state store + tools (`goals_read`, `goals_update`, `goals_review`)
-- [ ] System prompt injection of goals block
-- [ ] Drift detection in the agent loop
+- [x] System prompt injection of goals block
+- [x] Drift detection in the agent loop
 - [x] Review cron → main thread *(built against the current cron delivery surface — see Open decisions #4)*
 
 ### Phase 3 — Decision queue
