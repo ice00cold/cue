@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Hermes CLI - Main entry point.
+"""Cue CLI - Main entry point.
 
 Usage:
-    hermes                     # Interactive chat (default)
-    hermes chat / gateway / setup / status / cron / doctor / update / ...
-    hermes --version           # Show version and update status
-    hermes <cmd> --help        # Per-command help
+    cue                     # Interactive chat (default)
+    cue chat / gateway / setup / status / cron / doctor / update / ...
+    cue --version           # Show version and update status
+    cue <cmd> --help        # Per-command help
 """
 
 # hermes_bootstrap must be the very first import — it sets up UTF-8 stdio on
@@ -197,7 +197,7 @@ def _warn_if_unsupervised_pid1(pid: "int | None" = None) -> None:
     if (pid if pid is not None else os.getpid()) != 1:
         return
     print(
-        "[hermes] WARNING: this process is PID 1 with no init above it "
+        "[cue] WARNING: this process is PID 1 with no init above it "
         "(entrypoint override?). Orphaned child processes will not be "
         "reaped and will accumulate as zombies. Use the image's default "
         "ENTRYPOINT (docker/entrypoint-dispatch.sh) instead of overriding "
@@ -412,7 +412,7 @@ def _require_tty(command_name: str) -> None:
     """Exit 1 if stdin is not a terminal: curses/input() prompts spin at 100% CPU on a pipe."""
     if not sys.stdin.isatty():
         print(
-            f"Error: 'hermes {command_name}' requires an interactive terminal.\n"
+            f"Error: 'cue {command_name}' requires an interactive terminal.\n"
             f"It cannot be run through a pipe or non-interactive subprocess.\n"
             f"Run it directly in your terminal instead.",
             file=sys.stderr,
@@ -462,7 +462,7 @@ def _exit_invalid_profile_name(value: str) -> None:
     from hermes_cli.profiles import _invalid_profile_name_error
 
     print(f"Error: {_invalid_profile_name_error(value)}", file=sys.stderr)
-    print("Run `hermes profile list` to see your profiles.", file=sys.stderr)
+    print("Run `cue profile list` to see your profiles.", file=sys.stderr)
     sys.exit(2)
 
 
@@ -642,7 +642,7 @@ def _apply_profile_override() -> None:
                     file=sys.stderr,
                 )
             else:
-                error = f"Saved profile '{profile_name}' no longer exists. Switch back with: hermes profile use default"
+                error = f"Saved profile '{profile_name}' no longer exists. Switch back with: cue profile use default"
         if not hermes_home:
             print(f"Error: {error}", file=sys.stderr)
             sys.exit(1)
@@ -1663,10 +1663,10 @@ def _first_run_setup_guard(args) -> None:
     """No provider configured: offer `hermes setup` (TTY) or exit 1 with guidance."""
     print()
     print(
-        "It looks like Hermes isn't configured yet -- no API keys or providers found."
+        "It looks like Cue isn't configured yet -- no API keys or providers found."
     )
     print()
-    print("  Run:  hermes setup")
+    print("  Run:  cue setup")
     print()
 
     from hermes_cli.setup import (
@@ -1688,7 +1688,7 @@ def _first_run_setup_guard(args) -> None:
         cmd_setup(args)
         return
     print()
-    print("You can run 'hermes setup' at any time to configure.")
+    print("You can run 'cue setup' at any time to configure.")
     sys.exit(1)
 
 
