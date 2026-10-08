@@ -524,9 +524,14 @@ def finalize_turn(
     effective_task_id, turn_id, user_message, original_user_message, _should_review_memory,
     _turn_exit_reason, _pending_verification_response=None,
     _pending_verification_response_previewed=False,
+    current_turn_user_idx=None,
 ):
     """Run the post-loop finalization and return the turn ``result`` dict."""
     from agent.conversation_loop import logger
+
+    # Turn-start clock for goals drift detection; _persist_step below clears the
+    # in-flight marker, so capture it before any finalization phase runs.
+    _goals_turn_started = getattr(agent, "_inflight_turn_started", 0.0) or None
 
     final_response, _turn_exit_reason, preserved_verification_fallback, interrupted = _resolve_budget_fallback(
         agent, final_response=final_response, api_call_count=api_call_count,
@@ -669,6 +674,14 @@ def finalize_turn(
         )
     except Exception as exc:
         logger.warning("on_turn_complete notification failed: %s", exc)
+
+    # Goals drift detection (Cue pillar 2): record work that served no active
+    # goal. record_turn_drift is fail-open by contract; it never alters the result.
+    from agent.goals_drift import record_turn_drift
+    record_turn_drift(
+        agent, messages, user_message=user_message,
+        current_turn_user_idx=current_turn_user_idx,
+        turn_started=_goals_turn_started)
 
     # Surrogate chokepoint: RAW SDK text with a lone UTF-16 surrogate crashes downstream
     # consumers (stdout, Telegram ``utf16_len``, JSON); scrub once where it leaves the loop.
