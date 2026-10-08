@@ -74,7 +74,6 @@ KNOWN_KEYS = {
     "platforms",
     "capabilities",
     "title",
-    "onboarding",
     "known_issues",
 }
 # Cosmetic labels attached to the pin. ``version`` is never parsed; ``image`` and ``screenshots``

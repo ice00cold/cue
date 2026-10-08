@@ -15,7 +15,6 @@ tier: official
 category: tools
 docs_url: https://github.com/NousResearch/hermes-plugin-blender#readme
 platforms: [windows, macos, linux]
-onboarding: true
 capabilities:
   provides_tools: []
   provides_hooks: []
