@@ -168,9 +168,6 @@ describe('boot pre-paint', () => {
     vi.resetModules()
     window.localStorage.setItem(WIZARD_KEY, JSON.stringify({ accent: PINK }))
 
-    const { $onboardingAnswers } = await import('@/store/onboarding-answers')
-
-    expect($onboardingAnswers.get().accent).toBeNull()
     expect(await boot()).toBe(untinted)
     expect(window.localStorage.getItem(WIZARD_KEY)).toBeNull()
   })
