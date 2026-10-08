@@ -902,6 +902,10 @@ export interface Translations extends NoticeTranslations {
       themeDesc: string
       themeSearchPlaceholder: string
       themeProfileNote: (profile: string) => string
+      accentTitle: string
+      accentDesc: string
+      accentThemeDefault: string
+      accentCustom: string
       installTitle: string
       installDesc: string
       installPlaceholder: string

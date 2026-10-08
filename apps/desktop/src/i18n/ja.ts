@@ -699,6 +699,10 @@ export const jaOverrides = {
       themeDesc: 'デスクトップ専用のパレットです。選択したモードの上に適用されます。',
       themeProfileNote: profile =>
         `「${profile}」プロファイルに保存されます。プロファイルごとに個別のテーマを保持します。`,
+      accentTitle: 'アクセントカラー',
+      accentDesc: 'テーマの上からボタン、リンク、ハイライトの色を変えます。このプロファイルに保存されます。',
+      accentThemeDefault: 'テーマの既定',
+      accentCustom: 'カスタムカラー',
       installTitle: 'VS Code から導入',
       installDesc:
         'Marketplace の拡張機能 ID（例: dracula-theme.theme-dracula）を貼り付けると、その配色テーマをデスクトップ用パレットに変換します。',

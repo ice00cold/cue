@@ -680,6 +680,10 @@ export const ruOverrides = {
       themeTitle: 'Тема',
       themeDesc: 'Только палитры для приложения. Выбранный режим применяется поверх.',
       themeProfileNote: profile => `Сохранено для профиля ${profile} — у каждого профиля своя тема.`,
+      accentTitle: 'Акцентный цвет',
+      accentDesc: 'Перекрашивает кнопки, ссылки и выделения поверх темы. Сохраняется для этого профиля.',
+      accentThemeDefault: 'По умолчанию темы',
+      accentCustom: 'Свой цвет',
       installTitle: 'Установить из VS Code',
       installDesc:
         'Вставьте id расширения с Marketplace (напр. dracula-theme.theme-dracula), чтобы преобразовать его цветовую тему в палитру приложения.',

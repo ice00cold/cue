@@ -1147,6 +1147,10 @@ export const esOverrides = {
       themeDesc: 'Paletas solo para escritorio. Se aplican sobre el modo seleccionado.',
       themeSearchPlaceholder: 'Busca en tus temas o en el VS Code Marketplace…',
       themeProfileNote: profile => `Guardado para el perfil ${profile}; cada perfil conserva su propio tema.`,
+      accentTitle: 'Color de acento',
+      accentDesc: 'Cambia el color de botones, enlaces y resaltados sobre el tema. Se guarda para este perfil.',
+      accentThemeDefault: 'Predeterminado del tema',
+      accentCustom: 'Color personalizado',
       installTitle: 'Instalar desde VS Code',
       installDesc:
         'Pega un ID de extensión de Marketplace (por ejemplo, dracula-theme.theme-dracula) para convertir su tema de color en una paleta de escritorio.',

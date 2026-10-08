@@ -1145,6 +1145,11 @@ export const deOverrides = {
       themeDesc: 'Nur Desktop-Paletten. Der gewählte Modus wird oben drauf angewendet.',
       themeSearchPlaceholder: 'Ihre Themes oder den VS Code Marketplace durchsuchen…',
       themeProfileNote: profile => `Für das Profil ${profile} gespeichert — jedes Profil behält sein eigenes Theme.`,
+      accentTitle: 'Akzentfarbe',
+      accentDesc:
+        'Färbt Schaltflächen, Links und Hervorhebungen über dem Theme neu ein. Wird für dieses Profil gespeichert.',
+      accentThemeDefault: 'Theme-Standard',
+      accentCustom: 'Eigene Farbe',
       installTitle: 'Aus VS Code installieren',
       installDesc:
         'Fügen Sie eine Marketplace-Erweiterungs-ID ein (z. B. dracula-theme.theme-dracula), um ihr Farbschema in eine Desktop-Palette umzuwandeln.',
