@@ -50,8 +50,11 @@ type QuestionnaireHost = Omit<HandoffDeps, 'launchProfile' | 'refreshReadiness'>
 
 const $questionnaireHost = atom<null | QuestionnaireHost>(null)
 
-/** The local primary backend: a remote host is not this computer (D2). */
-const onLocalPrimary = () => $connection.get()?.mode === 'local'
+/**
+ * D2: a free-tier build (the launch flag the backend spawn also carries) on the local primary
+ * backend; a remote host is not this computer. Anything else is decided at once, without an RPC.
+ */
+const mayRunHere = () => window.hermesDesktop?.guestOnboardingEnabled === true && $connection.get()?.mode === 'local'
 
 interface QuestionnaireProps {
   enabled: boolean
@@ -71,7 +74,7 @@ export function Questionnaire({ enabled, openDefaultChat, requestGateway }: Ques
     }
 
     if (enabled) {
-      if (onLocalPrimary()) {
+      if (mayRunHere()) {
         void decideQuestionnaire(requestGateway)
       } else {
         markQuestionnaireDecided()
