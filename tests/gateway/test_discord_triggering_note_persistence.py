@@ -44,13 +44,15 @@ async def test_discord_note_rides_model_text_but_not_persisted_content(monkeypat
 
     note = discord_triggering_note("1550380365858865157")
     assert message_text.startswith(f"{note}\n\n[Replying to: \"Create a project plan for Q4\"]")
-    assert persist_user_message == '[Replying to: "Create a project plan for Q4"]\n\nyes do that'
+    # Cue: every session is shared multi-user, so the sender prefix rides the durable row (the
+    # system prompt no longer names a single user — attribution lives on the message).
+    assert persist_user_message == '[Replying to: "Create a project plan for Q4"]\n\n[Owen] yes do that'
 
     # Control: a turn without a platform message id (desktop relay) persists byte-identical text.
     relay = MessageEvent(text="plain relay turn", source=source, message_id=None)
     relay_text = await runner._prepare_inbound_message_text(event=relay, source=source, history=[])
     _, relay_persist, _ = runner._hmwa_apply_message_timestamp(relay, relay_text)
-    assert relay_persist == "plain relay turn" == relay_text
+    assert relay_persist == "[Owen] plain relay turn" == relay_text
 
 
 @pytest.mark.asyncio

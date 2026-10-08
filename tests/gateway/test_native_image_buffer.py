@@ -1,3 +1,12 @@
+"""Native image buffer semantics under Cue's one-main-thread session model.
+
+Every chat of a profile is the same conversation, so there is ONE native-image buffer per
+profile: a buffered image pairs with the conversation's NEXT turn (whoever sends it), and each
+inbound prep resets the buffer so a stale image never attaches to an unrelated later turn.
+Interleaving is serialized by the busy path (the second window's message queues behind the
+image-bearing turn), so the pairing holds in practice.
+"""
+
 import pytest
 
 from gateway.config import GatewayConfig, Platform, PlatformConfig
@@ -38,7 +47,7 @@ def _image_event(source: SessionSource, path: str) -> MessageEvent:
 
 
 @pytest.mark.asyncio
-async def test_native_image_buffer_isolated_per_session():
+async def test_native_image_buffer_is_one_per_main_thread():
     runner = _make_runner()
     source_a = _source("chat-a")
     source_b = _source("chat-b")
@@ -54,12 +63,13 @@ async def test_native_image_buffer_isolated_per_session():
         history=[],
     )
 
-    assert runner._consume_pending_native_image_paths(build_session_key(source_a)) == ["/tmp/a.png"]
-    assert runner._consume_pending_native_image_paths(build_session_key(source_b)) == ["/tmp/b.png"]
+    # Both windows share the conversation's buffer: the latest prep holds it.
+    assert runner._consume_pending_native_image_paths(build_session_key(source_a)) == ["/tmp/b.png"]
+    assert runner._consume_pending_native_image_paths(build_session_key(source_b)) == []
 
 
 @pytest.mark.asyncio
-async def test_native_image_buffer_not_cleared_by_other_sessions_without_images():
+async def test_plain_text_prep_resets_the_threads_image_buffer():
     runner = _make_runner()
     source_a = _source("chat-a")
     source_b = _source("chat-b")
@@ -75,22 +85,7 @@ async def test_native_image_buffer_not_cleared_by_other_sessions_without_images(
         history=[],
     )
 
-    assert runner._consume_pending_native_image_paths(build_session_key(source_a)) == ["/tmp/a.png"]
+    # A text turn from any window pairs with — and consumes — the buffered image slot: a stale
+    # image must never attach to an unrelated later turn of the conversation.
+    assert runner._consume_pending_native_image_paths(build_session_key(source_a)) == []
     assert runner._consume_pending_native_image_paths(build_session_key(source_b)) == []
-
-
-@pytest.mark.asyncio
-async def test_native_image_buffer_uses_resolved_session_key_when_provided():
-    runner = _make_runner()
-    source = _source("chat-a")
-    runner._session_key_for_source = lambda _source: "source-derived-key"
-
-    await runner._prepare_inbound_message_text(
-        event=_image_event(source, "/tmp/a.png"),
-        source=source,
-        history=[],
-        session_key="canonical-session-key",
-    )
-
-    assert runner._consume_pending_native_image_paths("source-derived-key") == []
-    assert runner._consume_pending_native_image_paths("canonical-session-key") == ["/tmp/a.png"]

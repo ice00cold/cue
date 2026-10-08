@@ -164,6 +164,7 @@ async def test_prepare_route_identity_check_keeps_event_loop_responsive(monkeypa
     )
     await heartbeat
 
-    assert result == "inspect @AGENTS.md"
+    # One main thread: sender attribution prefixes every inbound turn.
+    assert result == "[Maxim] inspect @AGENTS.md"
     assert seen["event_loop_progressed"] is True
     assert seen["thread"] is not main_thread

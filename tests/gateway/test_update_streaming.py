@@ -313,14 +313,14 @@ class TestUpdatePromptInterception:
         runner._update_prompt_pending[session_key] = True
         runner._is_user_authorized = MagicMock(return_value=True)
         runner._session_key_for_source = MagicMock(return_value=session_key)
-        runner._handle_reset_command = AsyncMock(return_value="reset ok")
+        runner._handle_new_command = AsyncMock(return_value="rotated")
         (hermes_home / ".update_prompt.json").write_text(json.dumps({"prompt": "test"}))
 
         with patch("gateway.run._hermes_home", hermes_home):
             result = await runner._handle_message(event)
 
-        assert result == "reset ok"
-        runner._handle_reset_command.assert_awaited_once_with(event)
+        assert result == "rotated"
+        runner._handle_new_command.assert_awaited_once_with(event)
         # .update_response was written (empty) to unblock the update
         # subprocess; _gateway_prompt will read "", strip to "", and
         # return the prompt's default.

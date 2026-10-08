@@ -26,23 +26,19 @@ def _src(**kw) -> SessionSource:
 
 
 class TestSessionKeyByteIdenticalWhenOff:
-    """The non-negotiable guard: with no profile (or 'default'), every key is
-    byte-for-byte what it was before Phase 0. A diff here orphans every
-    existing session on upgrade."""
+    """The non-negotiable guard: with no profile (or 'default'), every chat derives the ONE
+    main-thread key, byte-for-byte (Cue's session model; see tests/gateway/test_main_thread_session.py)."""
 
     @pytest.mark.parametrize("profile", [None, "default"])
     def test_dm_with_chat_id(self, profile):
         s = _src(chat_id="99", chat_type="dm")
-        assert build_session_key(s, profile=profile) == "agent:main:telegram:dm:99"
+        assert build_session_key(s, profile=profile) == "agent:main:main-thread"
 
 
     @pytest.mark.parametrize("profile", [None, "default"])
     def test_group_per_user(self, profile):
         s = _src(platform=Platform.DISCORD, chat_id="g1", chat_type="group", user_id="alice")
-        assert (
-            build_session_key(s, profile=profile)
-            == "agent:main:discord:group:g1:alice"
-        )
+        assert build_session_key(s, profile=profile) == "agent:main:main-thread"
 
 
 class TestSessionKeyNamespacedWhenOn:
@@ -51,10 +47,7 @@ class TestSessionKeyNamespacedWhenOn:
 
     def test_named_profile_group_per_user(self):
         s = _src(platform=Platform.DISCORD, chat_id="g1", chat_type="group", user_id="alice")
-        assert (
-            build_session_key(s, profile="coder")
-            == "agent:coder:discord:group:g1:alice"
-        )
+        assert build_session_key(s, profile="coder") == "agent:coder:main-thread"
 
     def test_two_profiles_same_chat_do_not_collide(self):
         s = _src(chat_id="99", chat_type="dm")
@@ -125,7 +118,7 @@ class TestSessionStoreProfileResolution:
     def test_flag_off_uses_legacy_namespace(self, tmp_path):
         store = self._store(tmp_path)  # multiplex_profiles defaults False
         s = _src(chat_id="99", chat_type="dm")
-        assert store._generate_session_key(s) == "agent:main:telegram:dm:99"
+        assert store._generate_session_key(s) == "agent:main:main-thread"
         assert store._generate_session_key(s) == build_session_key(s)
 
 

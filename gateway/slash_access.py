@@ -130,7 +130,20 @@ def policy_for_source(gateway_config: Any, source: Any) -> SlashAccessPolicy:
     return dm_policy if dm_policy.enabled and not group_policy.enabled else group_policy
 
 
-__all__ = ["SlashAccessPolicy", "policy_from_extra", "policy_for_source"]
+def explicitly_configured_admin(runner: Any, source: Any) -> bool:
+    """Whether *source* is an EXPLICITLY-listed admin of the profile whose bot received it.
+
+    Stricter than ``SlashAccessPolicy.is_admin()``, which is True for every caller when slash
+    gating is DISABLED — the default config — and would silently make everyone admin-capable
+    wherever this helper gates a privileged action (IDOR)."""
+    policy = policy_for_runner_source(runner, source)
+    uid = getattr(source, "user_id", None)
+    return bool(policy.enabled and uid and policy.is_admin(uid))
+
+
+__all__ = [
+    "SlashAccessPolicy", "policy_from_extra", "policy_for_source", "explicitly_configured_admin",
+]
 
 
 

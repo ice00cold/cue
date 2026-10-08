@@ -375,11 +375,6 @@ async def test_durable_clear_fails_once_then_succeeds_before_eviction(monkeypatc
 @pytest.mark.asyncio
 async def test_durable_clear_fails_twice_keeps_override_and_warns(monkeypatch, tmp_path, caplog):
     runner, store, key, override = _durable_sweep_runner(monkeypatch, tmp_path)
-    # Multiple failed sessions still produce exactly one extra completion line.
-    second_key = store.get_or_create_session(_source(chat_id="chat-2")).session_key
-    store.set_model_override(second_key, override)
-    runner._session_model_overrides[second_key] = dict(override)
-    runner._agent_cache[second_key] = runner._agent_cache[key]
     writes = []
 
     def fail_always(data):
@@ -392,12 +387,13 @@ async def test_durable_clear_fails_twice_keeps_override_and_warns(monkeypatch, t
     with caplog.at_level(logging.WARNING, logger="gateway.run"):
         await runner._render_login_state(attempt, state)
 
-    assert len(writes) == 4
+    # One main-thread key (a second chat would resolve to the same conversation), one failed
+    # clear round per sweep pass.
+    assert len(writes) == 2
     reloaded = SessionStore(sessions_dir=tmp_path, config=runner.config)
     rebuilt = _runner(monkeypatch)
     rebuilt.session_store = reloaded
-    for session_key in (key, second_key):
-        assert runner._session_model_overrides[session_key] == override
+    assert runner._session_model_overrides[key] == override
         assert reloaded.get_model_override(session_key) == override
         rebuilt._rehydrate_session_model_override(session_key)
         assert rebuilt._session_model_overrides[session_key]["model"] == override["model"]

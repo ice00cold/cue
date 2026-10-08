@@ -38,6 +38,9 @@ async def test_completion_ack_requires_admission_and_replay_never_repeats(tmp_pa
     runner.adapters = {Platform.DISCORD: adapter}
     source = SessionSource(platform=Platform.DISCORD, chat_type="dm", chat_id="42", user_id="42")
     key = build_session_key(source)
+    # Cue: a session_key-only synthetic event resolves its chat through the store entry's origin
+    # (main-thread keys carry no per-chat slots to parse), so the route must exist in the index.
+    runner.session_store.get_or_create_session(source)
     events = [pending(key, f"admission-{i}") for i in range(2)]
     received = []
     release, started = asyncio.Event(), asyncio.Event()

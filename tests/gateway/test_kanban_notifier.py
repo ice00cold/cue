@@ -93,7 +93,7 @@ def test_kanban_notifier_replays_telegram_dm_topic_delivery_metadata(tmp_path, m
             conn,
             title="dm topic task",
             assignee="worker",
-            session_id="agent:main:telegram:dm:chat-1",
+            session_id="agent:main:main-thread",
         )
         kbn.add_notify_sub(
             conn,
@@ -498,7 +498,7 @@ def test_notifier_wakeup_uses_subscription_chat_type(tmp_path, monkeypatch):
     from gateway.session import build_session_key
 
     wake_key = build_session_key(adapter.handled[0].source)
-    assert wake_key == "agent:main:telegram:dm:chat-dm"
+    assert wake_key == "agent:main:main-thread"
     assert ":group:" not in wake_key
 
 
@@ -703,7 +703,7 @@ def _review_handoff_task(
             conn,
             title="implement the thing",
             assignee="worker",
-            session_id="agent:main:telegram:dm:chat-1",
+            session_id="agent:main:main-thread",
         )
         kbn.add_notify_sub(
             conn,
@@ -754,7 +754,7 @@ def test_block_loop_detected_wakes_the_origin_session(tmp_path, monkeypatch):
             conn,
             title="loops forever",
             assignee="worker",
-            session_id="agent:main:telegram:dm:chat-1",
+            session_id="agent:main:main-thread",
         )
         kbn.add_notify_sub(
             conn,

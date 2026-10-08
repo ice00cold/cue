@@ -20,7 +20,6 @@ from gateway.config import Platform
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.session import SessionSource
-from gateway.whatsapp_identity import canonical_whatsapp_identifier
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 if TYPE_CHECKING:  # string annotations only; never imported at runtime (cycle)
@@ -58,34 +57,6 @@ def _strip_slot(text: str, slot: str) -> Optional[str]:
         return ""
     if text.startswith(slot + ":"):
         return text[len(slot) + 1:]
-    return None
-
-
-def _tail_has_slot(tail: str, slot: str) -> bool:
-    """True when ``tail``'s FIRST slot is ``slot`` (``tail`` is ``""`` when the key ends at the
-    chat id)."""
-    return _strip_slot(tail, slot) is not None
-
-
-def _same_chat_key_slots(
-    key: str, *, prefix: str, chat_id: str, scope_id: Optional[str],
-) -> Optional[Tuple[str, str]]:
-    """``(chat_type, tail)`` when ``key`` names the SAME chat as ``prefix`` + ``chat_id``, else None.
-
-    ``prefix`` is the key's fixed-shape head, ``agent:<profile>:<platform>:``. Everything after it is
-    matched as TEXT, because ids may themselves contain ``:`` (Matrix ``!room:example.org``).
-    ``scope_id`` is Slack's workspace slot — ``build_session_key`` emits it there alone — and a key
-    without it still names the same chat; a key carrying a DIFFERENT known scope is another
-    workspace's chat. ``tail`` is ``""`` when the key ends at the chat id.
-    """
-    if not key.startswith(prefix):
-        return None
-    chat_type, _, rem = key[len(prefix):].partition(":")
-    candidates = (f"{scope_id}:{chat_id}", chat_id) if scope_id else (chat_id,)
-    for candidate in candidates:
-        tail = _strip_slot(rem, candidate)
-        if tail is not None:
-            return chat_type, tail
     return None
 
 
@@ -914,10 +885,10 @@ class GatewayBusySessionMixin:
     )
     # Dispatched only on the idle path (busy dispatch has its own allowlist).
     _IDLE_COMMANDS = (
-        "topic", "whoami", "platform", "stop", "reasoning", "memory", "skills", "fast",
+        "whoami", "platform", "stop", "reasoning", "memory", "skills", "fast",
         "approvals", "model", "codex-runtime", "personality", "suggestions", "save", "retry",
         "sethome", "compress", "usage", "topup", "insights", "reload-mcp", "reload-skills",
-        "bundles", "debug", "title", "resume", "sessions", "branch", "rollback", "diff", "goal",
+        "bundles", "debug", "title", "rollback", "diff", "goal",
         "loop", "refine", "review", "voice",
     )
 
@@ -1033,7 +1004,7 @@ class GatewayBusySessionMixin:
         await self._interrupt_and_clear_session(
             quick_key, source, interrupt_reason=_INTERRUPT_REASON_RESET, invalidation_reason="new_command",
         )
-        return await self._handle_reset_command(event)
+        return await self._handle_new_command(event)
 
     async def _busy_queue_command(self, event: MessageEvent, quick_key: str, source):
         # Each /queue is its own full agent turn, run FIFO after the current run; never merged.
@@ -1136,72 +1107,6 @@ class GatewayBusySessionMixin:
         else:
             suffix = t("gateway.unauthorized.admin_only_none")
         return t("gateway.unauthorized.admin_only", command=canonical_cmd, suffix=suffix)
-
-    def _same_chat_runs(self, source: SessionSource, own_key: str) -> List[Tuple[str, str, str]]:
-        """``(key, chat_type, tail)`` for every OTHER running turn in the caller's chat (``tail`` is
-        the key text after the chat id, ``""`` when the key ends there).
-
-        The namespace comes from ``own_key`` — the session store's own answer, so a named-profile
-        stop matches that profile's runs and never a literal. ``_snapshot_running_agents`` already
-        drops the pending sentinel (a session still being set up has no agent). Callers gate on
-        authorization; ``own_key`` is excluded. Both tiers share one call.
-        """
-        chat_id = str(getattr(source, "chat_id", None) or "")
-        if not chat_id:
-            return []
-        if source.chat_type == "dm" and source.platform == Platform.WHATSAPP:
-            # Match the same text build_session_key keyed: WhatsApp DM chat ids are canonicalised
-            # there, so a raw JID/LID alias would never line up with the stored key.
-            chat_id = canonical_whatsapp_identifier(chat_id) or chat_id
-        namespace = ":".join(own_key.split(":", 2)[:2])
-        prefix = f"{namespace}:{source.platform.value}:"
-        scope_id = str(getattr(source, "scope_id", None) or "") or None
-        runs = []
-        for key in self._snapshot_running_agents():
-            if key == own_key:
-                continue
-            parsed = _same_chat_key_slots(key, prefix=prefix, chat_id=chat_id, scope_id=scope_id)
-            if parsed is not None:
-                runs.append((key, parsed[0], parsed[1]))
-        return runs
-
-    def _sibling_thread_run_keys(
-        self, source: SessionSource, runs: List[Tuple[str, str, str]],
-    ) -> List[str]:
-        """Keys from ``runs`` belonging to OTHER participants in the caller's own thread (per-user
-        thread mode keys are ``...:{thread_id}:{user_id}``, so another user's run is invisible to the
-        caller's own ``/stop``). Callers still gate on authz."""
-        thread_id = str(getattr(source, "thread_id", None) or "")
-        chat_type = getattr(source, "chat_type", None) or ""
-        if not thread_id or not chat_type:
-            return []
-        return [
-            key
-            for key, key_chat_type, tail in runs
-            if key_chat_type == chat_type and _tail_has_slot(tail, thread_id)
-        ]
-
-    def _chat_scoped_run_keys(
-        self, source: SessionSource, runs: List[Tuple[str, str, str]],
-    ) -> List[str]:
-        """Keys from ``runs`` for ANY session of the same chat, whatever the chat_type/thread/
-        participant slots. Two supported shapes make a /stop key miss a run in the same chat (found
-        via Slack's native stop button, gateway-gateway#286): a top-level channel turn keys
-        ``channel`` while an in-thread /stop normalizes to ``thread``, and rolling-DM configs key
-        without the thread slot the stop carries. "/stop" means "stop what's running in THIS chat",
-        which is also what lets a human stop a peer's per-sender group run (see ``_same_chat_runs``).
-
-        A stop sent from INSIDE a thread only reaches runs whose own thread slot is that thread (or
-        that carry no thread slot at all — the rolling-DM shape). Anything else in the channel is a
-        different conversation: another reply thread, or a peer's top-level run. Callers gate on
-        authz.
-        """
-        thread_id = str(getattr(source, "thread_id", None) or "")
-        return [
-            key
-            for key, _key_chat_type, tail in runs
-            if not thread_id or not tail or _tail_has_slot(tail, thread_id)
-        ]
 
     def _is_stale_restart_redelivery(self, event: MessageEvent) -> bool:
         """True if this /restart is a Telegram re-delivery we already handled.

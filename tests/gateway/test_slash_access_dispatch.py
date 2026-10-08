@@ -158,11 +158,12 @@ async def test_secondary_profile_slash_policy_uses_its_own_config():
     denied = runner._check_slash_access(user, "restart")
     assert denied is not None and "⛔" in denied
     assert "Tier: user" in await runner._handle_whoami_command(_make_event("/whoami", user))
-    assert runner._resume_caller_is_admin(user) is False
+    from gateway.slash_access import policy_for_runner_source
+    assert policy_for_runner_source(runner, user).is_admin(user.user_id) is False
 
     admin = _make_source(user_id="admin", profile="beta")
     assert runner._check_slash_access(admin, "restart") is None
-    assert runner._resume_caller_is_admin(admin) is True
+    assert policy_for_runner_source(runner, admin).is_admin(admin.user_id) is True
 
     # The launch profile's own (ungated) bot stays ungated ...
     assert runner._check_slash_access(_make_source(user_id="user"), "restart") is None

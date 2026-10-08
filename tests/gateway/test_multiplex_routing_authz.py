@@ -77,7 +77,7 @@ def test_shared_bot_route_does_not_hijack_dedicated_secondary_bot(mux):
     the same DM to the shared bot still routes to ``ops`` (#104933)."""
     via_team_b = mux.team_b.build_source(chat_id="72719239", chat_type="dm", user_id="72719239")
     assert via_team_b.profile == "team_b"
-    assert mux.runner._session_key_for_source(via_team_b) == "agent:team_b:telegram:dm:72719239"
+    assert mux.runner._session_key_for_source(via_team_b) == "agent:team_b:main-thread"
     via_primary = mux.primary.build_source(chat_id="72719239", chat_type="dm", user_id="72719239")
     assert via_primary.profile == "ops"
 

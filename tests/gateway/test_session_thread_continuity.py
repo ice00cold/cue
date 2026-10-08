@@ -1,17 +1,15 @@
-"""Tests for DM thread session isolation.
+"""Thread continuity under Cue's one-main-thread session model.
 
-DM thread sessions must start empty — no parent transcript seeding.
-Thread context is handled by platform adapters (e.g. Slack's
-_fetch_thread_context fetches actual thread replies via the API).
-Session-level seeding was removed because it copied the ENTIRE parent
-DM transcript, causing unrelated conversations to bleed across threads.
+Upstream isolated thread sessions (a thread started EMPTY — no parent seeding) because a
+per-thread session was a separate conversation. Cue has ONE conversation per profile: a thread
+message is just another turn of the main thread, so it continues the same session and sees the
+conversation's transcript. Thread context beyond that (fetching thread replies) stays a platform
+adapter concern.
 
 Covers:
-- Thread sessions start empty (no parent seeding)
-- Group/channel thread sessions also start empty
-- Multiple threads from same parent are independent
-- Existing thread sessions are not mutated on re-access
-- Cross-platform: consistent behavior for Slack, Telegram, Discord
+- DM and group threads continue the main session (same id, transcript visible)
+- Multiple threads of one chat are the same conversation
+- Consistent across platforms (Slack, Telegram, Discord)
 """
 
 import pytest
@@ -25,7 +23,7 @@ def store(tmp_path, monkeypatch):
     """SessionStore with SQLite — load_transcript reads from DB only.
 
     Pin DEFAULT_DB_PATH to tmp_path so SessionDB() can't write to the real
-    ~/.hermes/state.db. (DEFAULT_DB_PATH is a module-level constant computed
+    ~/.cuehome/state.db. (DEFAULT_DB_PATH is a module-level constant computed
     at hermes_state import time, before pytest's HERMES_HOME monkeypatch
     fires — the autouse fixture's HERMES_HOME override doesn't help here.)
     """
@@ -62,11 +60,10 @@ PARENT_HISTORY = [
 ]
 
 
-class TestDMThreadIsolationEdgeCases:
-    """Edge cases — threads always start empty regardless of context."""
+class TestThreadContinuityEdgeCases:
+    """Threads are turns of the ONE conversation, not fresh sessions."""
 
-    def test_group_thread_starts_empty(self, store):
-        """Group/channel threads should also start empty."""
+    def test_group_thread_continues_the_main_session(self, store):
         parent_source = _group_source()
         parent_entry = store.get_or_create_session(parent_source)
         for msg in PARENT_HISTORY:
@@ -75,16 +72,21 @@ class TestDMThreadIsolationEdgeCases:
         thread_source = _group_source(thread_id="1234567890.000001")
         thread_entry = store.get_or_create_session(thread_source)
 
+        assert thread_entry.session_id == parent_entry.session_id
         thread_transcript = store.load_transcript(thread_entry.session_id)
-        assert len(thread_transcript) == 0
+        assert [m["content"] for m in thread_transcript] == [m["content"] for m in PARENT_HISTORY]
+
+    def test_multiple_threads_of_one_chat_are_one_conversation(self, store):
+        first = store.get_or_create_session(_dm_source(thread_id="t1"))
+        second = store.get_or_create_session(_dm_source(thread_id="t2"))
+        assert first.session_id == second.session_id
 
 
-class TestDMThreadIsolationCrossPlatform:
-    """Verify thread isolation is consistent across all platforms."""
+class TestThreadContinuityCrossPlatform:
+    """Verify thread continuity is consistent across all platforms."""
 
     @pytest.mark.parametrize("platform", [Platform.SLACK, Platform.TELEGRAM, Platform.DISCORD])
-    def test_thread_starts_empty_across_platforms(self, store, platform):
-        """DM thread sessions start empty regardless of platform."""
+    def test_thread_continues_the_main_session_across_platforms(self, store, platform):
         parent_source = _dm_source(platform=platform)
         parent_entry = store.get_or_create_session(parent_source)
         for msg in PARENT_HISTORY:
@@ -93,5 +95,5 @@ class TestDMThreadIsolationCrossPlatform:
         thread_source = _dm_source(platform=platform, thread_id="thread_123")
         thread_entry = store.get_or_create_session(thread_source)
 
-        thread_transcript = store.load_transcript(thread_entry.session_id)
-        assert len(thread_transcript) == 0
+        assert thread_entry.session_id == parent_entry.session_id
+        assert len(store.load_transcript(thread_entry.session_id)) == len(PARENT_HISTORY)

@@ -30,8 +30,10 @@ async def test_restore_retries_persisted_routes_in_their_own_profiles(tmp_path, 
     store = SessionStore(home / 'sessions', config)
     entries = []
     try:
-        for profile, status, topic in [(None, 'active', '11'), ('work', 'active', '22'),
-                                       ('work', 'paused', '33'), (None, 'cleared', '44')]:
+        # Cue: one main-thread session per profile, hence one heartbeat slot per profile —
+        # the paused/cleared variants would clobber the profile's own active row, so this
+        # routing-restore test seeds one active heartbeat per profile.
+        for profile, status, topic in [(None, 'active', '11'), ('work', 'active', '22')]:
             source = SessionSource(platform=Platform.TELEGRAM, chat_id='chat',
                                    thread_id=topic, profile=profile, scope_id='workspace')
             with _profile_runtime_scope(named if profile else home):

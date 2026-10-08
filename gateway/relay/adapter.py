@@ -868,9 +868,6 @@ class RelayAdapter(BasePlatformAdapter):
         self.descriptor = descriptor
         self.MAX_MESSAGE_LENGTH = descriptor.max_message_length
         self.supports_code_blocks = descriptor.markdown_dialect not in ("", "plain")
-        # Cron in_channel continuable surface (D6 gate in cron/scheduler.py);
-        # class default is False, so only an explicit descriptor bit turns it on.
-        self.supports_inchannel_continuable = bool(getattr(descriptor, "supports_inchannel_continuable", False))
 
     async def _on_inbound(self, event) -> None:
         """Bridge a connector-delivered MessageEvent into the normal adapter path."""
@@ -1103,15 +1100,6 @@ class RelayAdapter(BasePlatformAdapter):
         platform_value = getattr(platform, "value", platform)
         ids = getattr(self._transport, "_identities", None) or ()
         return bool(platform_value) and any(p == str(platform_value) for p, _ in ids)
-
-    def supports_inchannel_continuable_for_platform(self, platform: Any) -> bool:
-        """Whether ONE fronted platform can host the flat continuable cron surface (D6
-        gate). The scalar bit is the PRIMARY's only, so resolve the platform's own
-        negotiated descriptor; fall back to the scalar when unavailable."""
-        per_platform = self._negotiated_descriptor(str(getattr(platform, "value", platform) or ""))
-        if per_platform is not None:
-            return bool(getattr(per_platform, "supports_inchannel_continuable", False))
-        return bool(self.supports_inchannel_continuable)
 
     async def on_interrupt(self, session_key: str, chat_id: str) -> None:
         """Bridge a connector-delivered /stop into the per-session interrupt path."""

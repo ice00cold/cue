@@ -500,26 +500,22 @@ def test_thread_suspension_requires_a_fresh_context(tmp_path):
 
 
 class TestSessionKeyChatType:
-    """Test that _has_active_session_for_thread passes event-derived chat_type.
+    """The thread-activity lookup resolves through the ONE main-thread key.
 
-    Regression for #39527: the old code hardcoded ``chat_type="group"``,
-    which produced wrong session keys for DM and MPIM threads.  The fix
-    passes the event-derived ``chat_type`` so ``build_session_key()``
-    constructs the correct key for every channel type.
+    Upstream regression #39527 (hardcoded ``chat_type="group"`` produced wrong keys for DM and
+    MPIM threads) is structurally gone under Cue's session model: every chat_type, channel and
+    thread derives the profile's single key, so the lookup can never mismatch the lane.
     """
 
 
-    def test_dm_thread_not_found_with_group_type(self):
-        """Without chat_type='dm', a DM session key would not match.
-
-        This is the exact bug that the old ``hardcoded "group"`` code caused:
-        the lookup builds ``group:…`` while the real session is ``dm:…``.
-        """
+    def test_every_chat_type_resolves_the_same_active_session(self):
         from gateway.session import SessionEntry
 
         adapter = _make_adapter()
         mock_store = MagicMock()
-        session_key = "agent:main:slack:dm:D0DMCHANNEL:2000.0"
+        # Cue: every chat derives the profile's ONE main-thread key, whatever the event's
+        # chat_type/thread is — the old dm/group key mismatch cannot recur.
+        session_key = "agent:main:main-thread"
         mock_store._entries = {session_key: SessionEntry.from_dict({
             "session_key": session_key,
             "session_id": "slack-dm-thread-session",
@@ -532,21 +528,13 @@ class TestSessionKeyChatType:
         mock_store.config.thread_sessions_per_user = False
         adapter._session_store = mock_store
 
-        # The same entry must be active with the event's correct DM type.
-        assert adapter._has_active_session_for_thread(
-            channel_id="D0DMCHANNEL",
-            thread_ts="2000.0",
-            user_id="U_USER",
-            chat_type="dm",
-        )
-
-        # Default chat_type="group" should NOT find the DM session
-        result = adapter._has_active_session_for_thread(
-            channel_id="D0DMCHANNEL",
-            thread_ts="2000.0",
-            user_id="U_USER",
-        )
-        assert result is False
+        for chat_type in ("dm", "group", "mpim", "channel"):
+            assert adapter._has_active_session_for_thread(
+                channel_id="D0DMCHANNEL",
+                thread_ts="2000.0",
+                user_id="U_USER",
+                chat_type=chat_type,
+            ), chat_type
 
 
 # ===========================================================================

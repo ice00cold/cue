@@ -98,7 +98,7 @@ async def test_two_bots_same_chat_have_distinct_lanes_and_stop_cannot_cross(rig)
     rig.bot_a._enqueue_text_event(ev_a)
     rig.bot_b._enqueue_text_event(ev_b)
     key_a, key_b = rig.bot_a._event_session_key(ev_a), rig.bot_b._event_session_key(ev_b)
-    assert key_a == f"agent:main:telegram:dm:{UID}" and key_b == f"agent:team_b:telegram:dm:{UID}"
+    assert key_a == "agent:main:main-thread" and key_b == "agent:team_b:main-thread"
     assert list(rig.bot_a._pending_text_batches) == [key_a] and list(rig.bot_b._pending_text_batches) == [key_b]
     # The identity was pinned BEFORE the key was derived, and the two lanes never share a source.
     assert identity_of(ev_a.source).transport_profile == "default"
@@ -160,7 +160,7 @@ async def test_shared_bot_routed_chat_runs_as_satellite_and_unserved_route_is_dr
     routed = _event(rig.bot_a, "5150", "hi ops")
     key = rig.bot_a._event_session_key(routed)
     identity = identity_of(routed.source)
-    assert key == "agent:ops:telegram:dm:5150"
+    assert key == "agent:ops:main-thread"
     assert (identity.transport_profile, identity.runtime_profile) == ("default", "ops")
     assert identity.adapter() is rig.bot_a and identity.runtime_home == rig.home / "profiles" / "ops"
 

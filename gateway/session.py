@@ -13,7 +13,6 @@ from dataclasses import dataclass, field, fields
 from typing import Dict, List, Optional, Any
 
 from .config import Platform, GatewayConfig, HomeChannel
-from .whatsapp_identity import canonical_whatsapp_identifier
 from gateway.session_identity import transport_profile_of
 from gateway.session_persistence import SessionPersistenceMixin, _DB_UNPINNED
 from gateway.session_prompt_pin import SessionPromptPinMixin, sanitize_prompt_pin
@@ -646,11 +645,9 @@ def is_shared_multi_user_session(
     source: SessionSource, *, group_sessions_per_user: bool = True,
     thread_sessions_per_user: bool = False,
 ) -> bool:
-    """True when a non-DM session is shared across participants (mirrors the
-    isolation rules in :func:`build_session_key`)."""
-    if source.chat_type == "dm":
-        return False
-    return not (thread_sessions_per_user if source.thread_id else group_sessions_per_user)
+    """True when a session is shared across participants. Cue: every session is the one main
+    thread, shared by every chat and participant — so sender attribution always applies."""
+    return True
 
 
 def _session_key_namespace(profile: Optional[str]) -> str:
@@ -673,57 +670,38 @@ def profile_from_session_key_namespace(namespace: str) -> str:
     return "main" if namespace == "main~" else namespace
 
 
-def _canonical_participant(source: SessionSource) -> Optional[str]:
-    """Sender id for key isolation; WhatsApp JID/LID aliases are canonicalized so alias flips
-    cannot split one member into two sessions."""
-    participant_id = source.user_id_alt or source.user_id
-    if participant_id and source.platform == Platform.WHATSAPP:
-        participant_id = canonical_whatsapp_identifier(str(participant_id)) or participant_id
-    return participant_id
+#: The single conversation every chat/platform maps to (Cue: one main thread per profile).
+_MAIN_THREAD_SEGMENT = "main-thread"
 
 
 def build_session_key(
     source: SessionSource, group_sessions_per_user: bool = True,
     thread_sessions_per_user: bool = False, profile: Optional[str] = None,
 ) -> str:
-    """Build a deterministic session key from a message source (single source of truth).
+    """Build the session key for a message source (single source of truth).
 
-    Layout: ``<ns>:<platform>:<chat_type>[:<slack scope_id>][:<chat_id>][:<thread_id>][:<user>]``.
-    Slack ``scope_id`` precedes chat ids (Discord guild scope is deliberately NOT added, for key
-    compatibility). DMs are isolated per chat_id, falling back to the sender id, then to one
-    session per platform. Groups add the participant id only when ``group_sessions_per_user`` and
-    not in a thread (threads are shared unless ``thread_sessions_per_user``).
+    Cue collapses the session model to ONE persistent main thread per profile
+    (PLAN.md § One main thread): every platform, chat, thread and participant maps
+    to the same key, ``agent:<ns>:main-thread``. The per-chat/per-user/per-thread
+    layout of upstream Hermes is gone; ``source`` and the ``*_sessions_per_user``
+    flags are accepted so every caller (adapter seam, runner seam, cron seed
+    parity, tests) keeps one builder and the two sides of the ingress seam can
+    never drift. Replies still reach the exact chat that messaged: egress reads
+    the live event source / the refreshed ``SessionEntry.origin``, never the key.
     """
-    is_dm = source.chat_type == "dm"
-    chat_id = source.chat_id
-    if is_dm and source.platform == Platform.WHATSAPP:
-        chat_id = canonical_whatsapp_identifier(chat_id)
-    # Discord auto-thread continuity: key a channel-initiating message on the thread it WILL be
-    # delivered into (prospective_thread_id), and normalize the chat_type slot to "thread" so
-    # in-thread follow-ups byte-match. A real thread_id always wins. DMs use thread_id only.
-    thread_id = source.thread_id or (None if is_dm else source.prospective_thread_id)
-    chat_type_slot = "thread" if thread_id and not source.thread_id else source.chat_type
-    if is_dm:
-        # No chat_id: fall back to the sender id before the bare per-platform sink, or every
-        # chat_id-less DM shares one agent.
-        isolate_user = not chat_id
-    else:
-        # Threads are shared by default; per-user isolation only via thread_sessions_per_user or
-        # outside a thread.
-        isolate_user = group_sessions_per_user and not (thread_id and not thread_sessions_per_user)
-    # Duck-typed sources may lack user_id_alt: read the participant only when it matters.
-    participant_id = _canonical_participant(source) if (isolate_user or not is_dm) else None
+    return main_thread_session_key(profile)
 
-    parts = [_session_key_namespace(profile), source.platform.value, chat_type_slot]
-    if source.platform == Platform.SLACK and source.scope_id:
-        parts.append(str(source.scope_id))
-    if chat_id:
-        parts.append(chat_id)
-    # DMs put the participant before the thread; groups/threads put it after.
-    user_part = [str(participant_id)] if isolate_user and participant_id else []
-    thread_part = [thread_id] if thread_id else []
-    parts += user_part + thread_part if is_dm else thread_part + user_part
-    return ":".join(str(part) for part in parts)
+
+def main_thread_session_key(profile: Optional[str] = None) -> str:
+    """``agent:<ns>:main-thread`` — the one conversation key for a profile."""
+    return f"{_session_key_namespace(profile)}:{_MAIN_THREAD_SEGMENT}"
+
+
+def is_main_thread_session_key(session_key: str) -> bool:
+    """True only for the exact three-segment main-thread layout ``agent:<ns>:main-thread`` —
+    never for a legacy per-chat key whose chat id happens to be ``main-thread``."""
+    parts = str(session_key or "").split(":")
+    return len(parts) == 3 and parts[0] == "agent" and parts[2] == _MAIN_THREAD_SEGMENT
 
 
 class _SessionFlight:
@@ -804,10 +782,6 @@ class SessionStore(
         self._fast_persisted_entries: Dict[str, tuple[int, str]] = {}
         self._inflight_lock = threading.Lock()
         self._inflight_sessions: Dict[str, _SessionFlight] = {}
-        # An unscoped legacy Slack key is claimed once per process (two workspaces must not both
-        # revive one session).
-        self._legacy_slack_claim_lock = threading.Lock()
-        self._claimed_legacy_slack_keys: set[str] = set()
         self._transcript_retry_lock = threading.Lock()
         # One transcript drainer at a time: parent->child queue migration stays linearizable.
         self._transcript_drain_lock = threading.RLock()
@@ -937,8 +911,6 @@ class SessionStore(
         only ``_entries`` / ``_loaded`` mutations."""
         session_key = self._generate_session_key(source)
         now = _now()
-        if not force_new:
-            self._adopt_legacy_slack_entry(source, session_key)
 
         # Phase 1 (lock): snapshot the entry for stale/reset checks.
         with self._lock:
@@ -953,7 +925,7 @@ class SessionStore(
                 self._route_reset_reason(observed),
             )
         # Phase 2 (lock): apply the decisions to _entries.
-        decision = self._apply_route_checks(session_key, checks, force_new, touch_activity, now)
+        decision = self._apply_route_checks(session_key, checks, force_new, touch_activity, now, source)
 
         # Phase 3 (no lock): recovery + create + save + DB ops.
         if decision.needs_recover and decision.prev_session_id is None:
@@ -978,7 +950,7 @@ class SessionStore(
 
     def _apply_route_checks(
         self, session_key: str, checks: Optional[_RouteChecks], force_new: bool,
-        touch_activity: bool, now: datetime,
+        touch_activity: bool, now: datetime, source: Optional[SessionSource] = None,
     ) -> _RouteDecision:
         """Apply stale/reset decisions to ``_entries`` under ``_lock``. If another thread replaced
         the entry during the lock-free window the snapshot no longer applies: route is healthy."""
@@ -1018,6 +990,13 @@ class SessionStore(
                 # Internal/system events preserve the user-activity clock.
                 if touch_activity:
                     entry.updated_at = now
+                    # One main thread, many windows: refreshed on user activity so restored-row
+                    # deliveries (heartbeats, background completions, shutdown notices) go to the
+                    # chat that was used LAST, never the one that happened to seed the entry.
+                    # Internal events do not move it (same clock as updated_at).
+                    if source is not None:
+                        entry.origin = source
+                        entry.transport_profile = transport_profile_of(source)
                 decision.entry = entry
                 decision.needs_save = touch_activity or healed
                 decision.metadata_only_save = touch_activity and not healed

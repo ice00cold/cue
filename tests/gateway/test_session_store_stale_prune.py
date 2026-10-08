@@ -178,7 +178,7 @@ class TestPruneStaleSessionsLocked:
         """
         from hermes_state import SessionDB
 
-        key = "agent:main:telegram:dm:5140768830"
+        key = "agent:main:main-thread"
         db = SessionDB(tmp_path / "state.db")
         peer = {
             "user_id": "5140768830",

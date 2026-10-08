@@ -155,10 +155,12 @@ async def test_origin_creates_session_in_own_profile_and_replies_to_origin(gatew
     assert beta.send_scopes == [(gateway.homes["beta"], "beta")]
     assert gateway.adapters["default"].sent == []
 
-    entry = runner.session_store._entries["agent:alpha:telegram:group:100:7"]
+    # Cue: the plugin-origin turn lands in the profile's ONE main-thread session. Beta's own
+    # injection owns ITS profile's separate main thread — profiles stay islands.
+    entry = runner.session_store._entries["agent:alpha:main-thread"]
     assert entry.session_id == first.session_id
-    assert not any(key.startswith(("agent:main:", "agent:beta:")) and ":100:" in key
-                   for key in runner.session_store._entries)
+    beta_entry = runner.session_store._entries["agent:beta:main-thread"]
+    assert beta_entry.session_id != first.session_id
 
     # A human reply in the same chat keys into the plugin-created session. A secondary adapter's
     # intake task runs inside its profile scope (it is spawned from connect() under that scope).

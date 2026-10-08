@@ -99,12 +99,16 @@ def _silence_global_gateway_hooks(monkeypatch):
     monkeypatch.setattr("tools.approval.has_blocking_approval", lambda *args, **kwargs: False)
 
 
-def test_new_session_gets_clean_error_at_active_session_limit(monkeypatch):
+def test_message_at_capacity_from_another_profile_gets_clean_error(monkeypatch):
+    """The cap counts live sessions: a second chat of the SAME profile is the same conversation
+    (queued by the busy path), so the refusal needs another profile's session — a work-profile
+    message while the default profile's main thread runs at max=1 is refused cleanly."""
     _silence_global_gateway_hooks(monkeypatch)
     runner = _make_runner(max_concurrent_sessions=1)
+    runner.config.multiplex_profiles = True
     _occupy_session(runner, "busy")
     event = _make_event(chat_id="new")
-    new_key = build_session_key(event.source)
+    event.source.profile = "work"
 
     async def fail_if_agent_runs(self_inner, ev, src, qk, generation):
         raise AssertionError("_handle_message_with_agent should not run at capacity")
@@ -113,7 +117,6 @@ def test_new_session_gets_clean_error_at_active_session_limit(monkeypatch):
         result = asyncio.run(runner._handle_message(event))
 
     assert "(1/1)" in result
-    assert new_key not in runner._running_agents
     runner.session_store.get_or_create_session.assert_not_called()
 
 

@@ -217,9 +217,11 @@ async def test_fast_gate_follows_the_session_route(monkeypatch, tmp_path, defaul
 
 
 @pytest.mark.asyncio
-async def test_fast_override_lands_under_the_recovered_telegram_topic_key(monkeypatch, tmp_path):
-    """/fast keys its eligibility check AND its tier override by the topic-recovered source the next
-    turn uses (#30479), not the raw lobby-shaped event source."""
+async def test_fast_override_lands_under_the_key_the_next_turn_uses(monkeypatch, tmp_path):
+    """/fast keys its eligibility check AND its tier override by the same key the next turn uses.
+    Under Cue's one-main-thread model every source shape (raw, topic-recovered, thread-pinned)
+    derives the ONE key, so the historic topic-key drift (#30479) is structurally impossible —
+    pin that."""
     import dataclasses
 
     runner = _make_runner()
@@ -227,7 +229,7 @@ async def test_fast_override_lands_under_the_recovered_telegram_topic_key(monkey
     monkeypatch.setattr(runner, "_recover_telegram_topic_thread_id", lambda src: "77")
     raw_key = runner._session_key_for_source(source)
     turn_key = runner._session_key_for_source(dataclasses.replace(source, thread_id="77"))
-    assert turn_key != raw_key
+    assert turn_key == raw_key == "agent:main:main-thread"
     runner._session_model_overrides[turn_key] = dict(_ASTRA_ON_CODEX)
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_load_gateway_config", lambda: {})
@@ -237,4 +239,3 @@ async def test_fast_override_lands_under_the_recovered_telegram_topic_key(monkey
 
     assert "FAST" in response
     assert runner._resolve_session_service_tier(session_key=turn_key) == "priority"
-    assert raw_key not in runner._session_service_tier_overrides

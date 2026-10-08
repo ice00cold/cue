@@ -658,11 +658,20 @@ class QQAdapter(OwnAccessPolicyMixin, BasePlatformAdapter):
         return parsed
 
     def _is_authorized_interaction_for_session(self, event: InteractionEvent, session_key: str) -> bool:
-        """Authorize approval/update interactions against session + operator."""
-        parsed = self._parse_gateway_session_key(session_key)
+        """Authorize approval/update interactions against session + operator.
+
+        Cue's session keys are the one main-thread key per profile (no chat details embedded),
+        so per-chat equality can no longer prove anything: the operator must instead pass the
+        same intake allowlist that lets them talk to the agent at all. A legacy per-chat key
+        (pre-fork rows still embedded in old button payloads) keeps the old equality check.
+        """
         operator = str(event.operator_openid or "").strip()
-        if not parsed or parsed.get("platform") != "qqbot" or not operator:
+        if not operator:
             return False
+        parsed = self._parse_gateway_session_key(session_key)
+        if not parsed or parsed.get("platform") != "qqbot":
+            # Main-thread keys do not carry the platform slot — the profile's own conversation.
+            return session_key.endswith(":main-thread") and self._is_dm_intake_allowed(operator)
 
         chat_type = parsed.get("chat_type", "")
         chat_id = parsed.get("chat_id", "")

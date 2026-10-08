@@ -862,12 +862,8 @@ class GatewayInboundMixin(GatewayPluginInjectionMixin):
         )
 
     async def _hm_cmd_new(self, event, source, _quick_key):
-        if await asyncio.to_thread(self._is_telegram_topic_root_lobby, source):
-            return True, self._telegram_topic_root_new_message()
-        return await self._hm_confirm_destructive(
-            event, "new", t("gateway.confirm.detail_new"),
-            self._handle_reset_command,
-        )
+        # Rotation keeps the session (nothing is discarded), so no destructive confirmation.
+        return True, await self._handle_new_command(event)
 
     async def _hm_cmd_start(self, event, source, _quick_key):
         logger.info("Ignoring /start platform ping for session %s", _quick_key)
