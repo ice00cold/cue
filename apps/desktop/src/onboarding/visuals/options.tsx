@@ -1,12 +1,13 @@
 import type { CSSProperties } from 'react'
 
-import { selectableClass } from '@/components/onboarding-chat/chip'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
 import { IS_MAC } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
 import type { InterfaceMode } from '@/store/interface-mode'
 import { readableInk } from '@/themes/color'
+
+import { selectableClass } from './chip'
 
 const CONNECTOR_LEAD_ORDER = [
   'gmail',

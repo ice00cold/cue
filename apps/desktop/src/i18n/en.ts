@@ -10,6 +10,7 @@ import { enModelMenu } from './en_model_menu'
 import { enNotices } from './en_notices'
 import { enOnboarding } from './en_onboarding'
 import { enProjects } from './en_projects'
+import { enQuestionnaire } from './en_questionnaire'
 import { enSharedMetrics } from './en_shared_metrics'
 import { enUninstallSection } from './en_uninstall_section'
 import type { Translations } from './types'
@@ -27,6 +28,7 @@ export const en: Translations = {
   },
   sharedMetrics: enSharedMetrics,
   appTour: enAppTour,
+  questionnaire: enQuestionnaire,
   // English editorial copy stays in the shipped JSONL; other locales override it.
   intro: { stock: {}, custom: () => [] },
   connectors: {

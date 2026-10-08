@@ -1,7 +1,7 @@
-import { Chip } from '@/components/onboarding-chat/chip'
-import { AccentSwatch } from '@/components/onboarding-chat/options'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
+import { Chip } from '@/onboarding/visuals/chip'
+import { AccentSwatch } from '@/onboarding/visuals/options'
 import { accentsFor, customAccentId, resolveAccent } from '@/themes/accents'
 import { useTheme } from '@/themes/context'
 

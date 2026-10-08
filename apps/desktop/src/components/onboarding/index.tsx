@@ -1,6 +1,6 @@
 import type { ModelOptionProvider } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,8 @@ import { Check, ChevronDown, ChevronLeft, KeyRound, Loader2 } from '@/lib/icons'
 import { isSubmitEnter } from '@/lib/ime'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
 import { cn } from '@/lib/utils'
+import { QuestionnaireScreen } from '@/onboarding/Questionnaire'
+import { $questionnaireOpen } from '@/onboarding/store'
 import { $desktopBoot, type DesktopBootState } from '@/store/boot'
 import { $freeTierStatus, FREE_TIER_MODEL, freeTierSetupFailure } from '@/store/free-tier'
 import { openFreeTierSignIn } from '@/store/free-tier-sign-in'
@@ -36,7 +38,8 @@ import {
   startManualOnboarding,
   startProviderOAuth
 } from '@/store/onboarding'
-import { $onboardingSurfaces, onboardingSurfaceActive } from '@/store/onboarding-presence'
+import { $onboardingSurfaceClear, onboardingSurfaceActive } from '@/store/onboarding-presence'
+import { $statusbarVisible } from '@/store/statusbar-prefs'
 import type { OAuthProvider } from '@/types/hermes'
 
 import { DocsLink, FlowPanel, Status } from './flow'
@@ -206,7 +209,9 @@ export function DesktopOnboardingOverlay({
   const { t } = useI18n()
   const onboarding = useStore($desktopOnboarding)
   const boot = useStore($desktopBoot)
-  useStore($onboardingSurfaces)
+  const questionnaireOpen = useStore($questionnaireOpen)
+  const statusbarVisible = useStore($statusbarVisible)
+  useStore($onboardingSurfaceClear)
   const onCompletedRef = useRef(onCompleted)
   onCompletedRef.current = onCompleted
   useStore($gateway)
@@ -357,6 +362,17 @@ export function DesktopOnboardingOverlay({
     }
   }, [ctx, onboarding.flow.status, onboarding.manual, onboarding.providers])
 
+  // D22: the questionnaire is this overlay's first state; the picker, ready and confirm screens follow it.
+  if (questionnaireOpen && !onboarding.manual) {
+    return (
+      <OverlaySurface statusbarVisible={statusbarVisible}>
+        <div className="relative w-full max-w-[45rem] overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) p-5 shadow-nous">
+          <QuestionnaireScreen refreshReadiness={() => refreshOnboarding(ctx)} />
+        </div>
+      </OverlaySurface>
+    )
+  }
+
   if (!onboarding.manual && onboardingSurfaceActive()) {
     return null
   }
@@ -414,18 +430,15 @@ export function DesktopOnboardingOverlay({
   const bare = ready && (freeTierIntro || (!showPicker && flow.status === 'confirming_model'))
 
   return (
-    <div
+    <OverlaySurface
       className={cn(
-        'fixed inset-0 z-(--z-onboarding) flex items-center justify-center bg-(--ui-chat-surface-background) p-6 transition-opacity duration-[520ms] ease-out',
+        'transition-opacity duration-[520ms] ease-out',
         // On the bare confirm screen, hold the surface (text-out + hold) so the
         // per-element exit plays before it dissolves.
         bare && leaving ? '[transition-delay:660ms]' : '',
         leaving ? 'pointer-events-none opacity-0' : 'opacity-100'
       )}
-      // Masks the whole app until onboarding finishes — must stay filled under
-      // window glass or the shell shows through. Contract:
-      // `[data-glass-opaque]` in styles.css.
-      data-glass-opaque=""
+      statusbarVisible={statusbarVisible}
     >
       <div
         className={cn(
@@ -468,6 +481,34 @@ export function DesktopOnboardingOverlay({
           )}
         </div>
       </div>
+    </OverlaySurface>
+  )
+}
+
+/**
+ * The one first-run layer (z 1300). It masks the app but stops above the status bar, where the free
+ * account's progress shows (D22). Must stay filled under window glass or the shell shows through:
+ * `[data-glass-opaque]` in styles.css.
+ */
+function OverlaySurface({
+  children,
+  className,
+  statusbarVisible
+}: {
+  children: ReactNode
+  className?: string
+  statusbarVisible: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        'fixed inset-x-0 top-0 z-(--z-onboarding) flex items-center justify-center bg-(--ui-chat-surface-background) p-6',
+        statusbarVisible ? 'bottom-5' : 'bottom-0',
+        className
+      )}
+      data-glass-opaque=""
+    >
+      {children}
     </div>
   )
 }

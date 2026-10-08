@@ -17,6 +17,7 @@ import type { ModelMenuTranslations } from './types_model_menu'
 import type { NoticeTranslations } from './types_notices'
 import type { OnboardingTranslations } from './types_onboarding'
 import type { SidebarProjectsTranslations } from './types_projects'
+import type { QuestionnaireTranslations } from './types_questionnaire'
 import type { SharedMetricsTranslations } from './types_shared_metrics'
 import type { UninstallSectionTranslations } from './types_uninstall_section'
 
@@ -78,6 +79,7 @@ export interface Translations extends NoticeTranslations {
   /** Shared-metrics consent: first-run dialog + Settings › Safety toggles. */
   sharedMetrics: SharedMetricsTranslations
   appTour: AppTourTranslations
+  questionnaire: QuestionnaireTranslations
   externalOpenFailed: {
     title: string
     message: string
