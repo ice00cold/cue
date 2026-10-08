@@ -55,10 +55,10 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 - [ ] Rolling transcript archive for search
 
 ### Phase 2 — Goals subsystem
-- [ ] Goals state store + tools (`goals_read`, `goals_update`, `goals_review`)
+- [x] Goals state store + tools (`goals_read`, `goals_update`, `goals_review`)
 - [ ] System prompt injection of goals block
 - [ ] Drift detection in the agent loop
-- [ ] Review cron → main thread
+- [x] Review cron → main thread *(built against the current cron delivery surface — see Open decisions #4)*
 
 ### Phase 3 — Decision queue
 - [ ] Decisions store + tool
@@ -78,6 +78,19 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 1. **Name** — working name `cue` (matches the proactive-AI concept). Rename = `mv` + rebrand + fork name.
 2. **Cross-platform main thread** — recommend ONE shared session across all platforms. Alternative: one main thread per platform (Telegram thread ≠ CLI thread).
 3. **Subagents/delegation** — keep (they're workers, not threads). Confirm.
+4. **Goals review delivery → main thread (Phase 1 integration point).** The review cadence jobs
+   (`goals-review-daily` `0 9 * * *`, `goals-review-weekly` `0 9 * * 1`) are installed by
+   `tools/goals_tool.py::ensure_goals_review_jobs` on first goal creation, delivering via the
+   current cron surface (`deliver=origin` when the creating session carries one, else `local`).
+   When Phase 1's main-thread delivery lands: retarget those jobs' delivery to the main session
+   id (single seam — job `deliver`/`origin` resolution in `cron/scheduler_delivery.py` or the
+   installer itself), and consider mirroring the review into the main transcript the way
+   continuable cron deliveries seed the reply-facing conversation.
+5. **Goals block staleness across the one main thread.** The system-prompt goals block renders at
+   prompt build only (event-driven: goal change → next build boundary; per-turn rebuild would
+   break prompt caching). In a Phase 1 world of one eternal main thread, the natural refresh
+   boundary is the compression rebuild — confirm that cadence is acceptable or add an explicit
+   goals-changed flag that rides the next sanctioned rebuild.
 
 ## Gotchas
 - The clone defaults to `~/.hermes` — every run script must set `HERMES_HOME` or Phase 0 has already failed.
