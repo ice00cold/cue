@@ -184,4 +184,5 @@ async def test_undo_evicts_cached_agent_under_profile_namespaced_key():
 
     await runner._handle_undo_command(MessageEvent(text="/undo", message_type=MessageType.TEXT, source=source))
 
-    assert evicted == ["agent:work:telegram:dm:123"]
+    # One main thread: the undo evicts under the profile's collapsed main-thread key.
+    assert evicted == ["agent:work:main-thread"]

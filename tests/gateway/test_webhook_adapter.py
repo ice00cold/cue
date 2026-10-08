@@ -903,12 +903,13 @@ class TestCrossPlatformDeliveryMirror:
     _CHAT = "5135545282"
 
     @staticmethod
-    def _seed_dm(home, sid, chat):
+    def _seed_dm(home, sid, chat, profile=None):
+        from gateway.session import main_thread_session_key
         from hermes_state import SessionDB
         db = SessionDB(db_path=home / "state.db")
         db.create_session(sid, source="telegram")
         db._conn.execute("UPDATE sessions SET session_key=?, chat_id=?, user_id=? WHERE id=?",
-                         (f"agent:main:telegram:dm:{chat}", chat, chat, sid))
+                         (main_thread_session_key(profile), chat, chat, sid))
         db._conn.commit()
         db.close()
 
@@ -934,9 +935,10 @@ class TestCrossPlatformDeliveryMirror:
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", hermes_state._IMPORT_DEFAULT_DB_PATH)
         work_home = get_profile_dir("work")
         work_home.mkdir(parents=True)
-        # A DM chat_id is the user's id on every bot, so both profiles hold a session for it.
+        # A DM chat_id is the user's id on every bot, so both profiles hold a session for it —
+        # under Cue each is the profile's one main-thread session.
         self._seed_dm(default_home, "dm-default", self._CHAT)
-        self._seed_dm(work_home, "dm-work", self._CHAT)
+        self._seed_dm(work_home, "dm-work", self._CHAT, profile="work")
         return default_home, work_home
 
     @staticmethod

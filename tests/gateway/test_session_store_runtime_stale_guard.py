@@ -45,8 +45,12 @@ def _db_returning(rows: dict) -> MagicMock:
     """SessionDB mock where get_session maps session_id -> row dict."""
     db = MagicMock()
     db.get_session.side_effect = lambda sid: rows.get(sid)
-    # By default recovery finds nothing (forces a fresh session).
+    # By default recovery finds nothing (forces a fresh session). The main-thread key
+    # resolves through the by-key finder; mirror it onto the peer finder so the suites
+    # that configure `.return_value` below drive both lookups identically.
     db.find_latest_gateway_session_for_peer.return_value = None
+    db.find_latest_gateway_session_for_main_key.side_effect = (
+        lambda session_key: db.find_latest_gateway_session_for_peer.return_value)
     db.reopen_session.return_value = None
     db.create_session.return_value = None
     # No compression continuation → the tip is the session itself (identity),

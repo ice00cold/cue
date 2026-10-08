@@ -25,7 +25,9 @@ def _source(profile=None, thread_id="42"):
     )
 
 
-def test_gateway_uses_source_profile_not_global(tmp_path: Path):
+def test_telegram_topic_mode_is_permanently_off_whatever_the_profile(tmp_path: Path):
+    """Cue: topic lanes were upstream's per-topic session UX; with one main thread there is
+    nothing to bind, so the mode stays off even for chats that enabled it before the fork."""
     from gateway.run import GatewayRunner
 
     assert GatewayRunner._telegram_topic_profile_name(_source("coder")) == "coder"
@@ -37,20 +39,8 @@ def test_gateway_uses_source_profile_not_global(tmp_path: Path):
 
     runner = object.__new__(GatewayRunner)
     runner._session_db = db
-    assert runner._telegram_topic_mode_enabled(_source("coder")) is True
-    assert runner._telegram_topic_mode_enabled(_source("other")) is False
-    assert runner._telegram_topic_mode_enabled(_source(None)) is False
-
-    runner._record_telegram_topic_binding(
-        _source("coder", "42"),
-        SimpleNamespace(session_key="k", session_id="sess-coder"),
-    )
-    assert db.get_telegram_topic_binding(
-        chat_id=CHAT, thread_id="42", profile_name="coder",
-    ) is not None
-    assert db.get_telegram_topic_binding(
-        chat_id=CHAT, thread_id="42", profile_name="default",
-    ) is None
+    for profile in ("coder", "other", None):
+        assert runner._telegram_topic_mode_enabled(_source(profile)) is False
     db.close()
 
 

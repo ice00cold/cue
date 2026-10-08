@@ -301,7 +301,8 @@ class TestSlackWorkspaceCollisionIsolation:
         second = adapter.handle_message.await_args_list[1].args[0]
         assert first.source.scope_id == "T_ONE"
         assert second.source.scope_id == "T_TWO"
-        assert build_session_key(first.source) != build_session_key(second.source)
+        # Cue: same-id workspaces share the one main-thread key; scope_id stays egress-only.
+        assert build_session_key(first.source) == build_session_key(second.source)
         assert adapter._channel_teams["D_SHARED"] == {"T_ONE", "T_TWO"}
         assert "D_SHARED" not in adapter._channel_team
 
@@ -2815,9 +2816,7 @@ class TestThreadReplyHandling:
         from gateway.session import SessionEntry
 
         # Deserialize a legacy routing entry so lifecycle flags have real defaults.
-        # The thread key with a per-user suffix comes from the adapter's isolation flags (the runner
-        # seeds them into PlatformConfig.extra); this store has no bearing on the key any more.
-        session_key = "agent:main:slack:group:T_TEAM:C123:123.000:U_USER"
+        session_key = "agent:main:main-thread"  # the conversation exists: follow-up processed
         adapter_with_session_store.config.extra["thread_sessions_per_user"] = True
         mock_session_store._entries = {session_key: SessionEntry.from_dict({
             "session_key": session_key,
@@ -3701,7 +3700,8 @@ class TestSlackThreadParentContext:
             history=[{"role": "user", "content": "original task"}],
         )
 
-        assert prepared == "one more detail"
+        assert prepared.endswith("one more detail")  # Cue: sender prefix rides the text
+        assert prepared.startswith("[Alice")
         assert "[Replying to:" not in prepared
 
 
