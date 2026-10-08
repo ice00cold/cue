@@ -45,7 +45,7 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 - [x] User-facing CLI rename: `hermes` → `cue` entry point (console script, banner, help text). **Internal `HERMES_*` env vars and `get_hermes_home()` stay for now** — internal rename is a dedicated later phase, not Phase 0 churn
 - [x] `python scripts/check` green
 - [x] Commit per logical unit on the phase branch
-- [ ] Push: `origin` = `ice00cold/cue` (fork live, all branches, push auth verified — 2026-10-08; transfer to af-claw later if wanted)
+- [x] Push: `origin` = `ice00cold/cue` (fork live, all branches, push auth verified — 2026-10-08; transfer to af-claw later if wanted)
 
 ### Phase 1 — One main thread
 - [ ] Gateway: map all chats/platforms → single persistent session ID
