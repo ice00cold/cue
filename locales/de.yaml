@@ -2197,7 +2197,7 @@ cli:
   render:
     response_transformed: "[Antwort nach dem Streaming umgewandelt]"
     banner_tagline: "{name} - KI-Agenten-Framework"
-    banner_version: "Hermes Agent v{version} ({date})"
+    banner_version: "Cue v{version} ({date})"
   subagents:
     cannot_steer_process: "Hintergrundprozesse können nicht gesteuert werden; stoppen Sie sie oder lesen Sie das Log."
     count_live: "{count} aktiv"

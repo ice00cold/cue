@@ -56,13 +56,14 @@ def _wings(*glyphs) -> List[List[str]]:
             for g in glyphs]
 
 
-# Branding shared by every Hermes-named built-in (mono/daylight override help_header).
-_HERMES_BRANDING: Dict[str, str] = _branding(
-    "Hermes", "☤", "Goodbye! ☤", prompt="❯", help_header="(^_^)? Available Commands")
+# Branding shared by every built-in skin (ares overrides wholesale;
+# mono/daylight override help_header). cue is the user-facing CLI name.
+_CUE_BRANDING: Dict[str, str] = _branding(
+    "Cue", "▸", "Goodbye! ▸", prompt="❯", help_header="(^_^)? Available Commands")
 
 _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
     "default": {
-        "name": "default", "description": "Classic Hermes — gold and kawaii",
+        "name": "default", "description": "Classic Cue — gold and kawaii",
         # Dark-authored; values match the TUI's DARK_THEME so both render the same gold.
         "colors": {
             "banner_border": "#CD7F32", "banner_title": "#FFD700", "banner_accent": "#FFBF00",
@@ -92,7 +93,7 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "completion_menu_bg": "#F5F5F5", "completion_menu_current_bg": "#E0D1BF",
             "selection_bg": "#D4E4F7", "status_bar_bg": "#F5F5F5", "voice_status_bg": "#F5F5F5"},
         "spinner": {},  # empty = hardcoded defaults in display.py
-        "branding": _HERMES_BRANDING,
+        "branding": _CUE_BRANDING,
         "tool_prefix": "┊"},
     "ares": {
         "name": "ares", "description": "War-god theme — crimson and bronze",
@@ -153,7 +154,7 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "completion_menu_current_bg": "#464646", "selection_bg": "#505050",
             "shell_dollar": "#aaaaaa", "voice_status_bg": "#1F1F1F"},
         "spinner": {},
-        "branding": {**_HERMES_BRANDING, "help_header": "[?] Available Commands"},
+        "branding": {**_CUE_BRANDING, "help_header": "[?] Available Commands"},
         "tool_prefix": "┊"},
     "slate": {
         "name": "slate", "description": "Cool blue — developer-focused",
@@ -169,7 +170,7 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "session_border": "#545E6B", "completion_menu_bg": "#151C2F",
             "completion_menu_current_bg": "#324867", "selection_bg": "#3A5375",
             "shell_dollar": "#7eb8f6", "voice_status_bg": "#151C2F"},
-        "spinner": {}, "branding": _HERMES_BRANDING, "tool_prefix": "┊"},
+        "spinner": {}, "branding": _CUE_BRANDING, "tool_prefix": "┊"},
     "daylight": {
         "name": "daylight",
         "description": "Light theme for bright terminals with dark text and cool blue accents",
@@ -187,7 +188,7 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "completion_menu_meta_current_bg": "#BFDBFE", "selection_bg": "#D3E0FB",
             "shell_dollar": "#2563EB", "voice_status_bg": "#E5EDF8"},
         "spinner": {},
-        "branding": {**_HERMES_BRANDING, "help_header": "[?] Available Commands"},
+        "branding": {**_CUE_BRANDING, "help_header": "[?] Available Commands"},
         "tool_prefix": "│"},
     "warm-lightmode": {
         "name": "warm-lightmode",
@@ -205,7 +206,7 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "completion_menu_current_bg": "#E8DCC8", "completion_menu_meta_bg": "#F0E8D8",
             "completion_menu_meta_current_bg": "#DFCFB0", "selection_bg": "#E8DAD0",
             "shell_dollar": "#8B4513", "voice_status_bg": "#F5F0E8"},
-        "spinner": {}, "branding": _HERMES_BRANDING, "tool_prefix": "┊"},
+        "spinner": {}, "branding": _CUE_BRANDING, "tool_prefix": "┊"},
     "poseidon": {
         "name": "poseidon", "description": "Ocean-god theme — deep blue and seafoam",
         "colors": {

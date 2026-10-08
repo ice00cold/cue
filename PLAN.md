@@ -39,13 +39,13 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 ## Phases
 
 ### Phase 0 — Foundation (isolate + verify)
-- [ ] Create branch `feat/phase-0-foundation`
-- [ ] Provision dev env: `source ./activate` with `HERMES_HOME=~/.cuehome` (and isolated `HERMES_RUNTIME_DIR`, e.g. `~/.cuehome/runtime`)
-- [ ] Verify isolation: one-shot query (`hermes chat -q "ping"`) works AND `~/.hermes` is untouched
-- [ ] User-facing CLI rename: `hermes` → `cue` entry point (console script, banner, help text). **Internal `HERMES_*` env vars and `get_hermes_home()` stay for now** — internal rename is a dedicated later phase, not Phase 0 churn
-- [ ] `python scripts/check` green
-- [ ] Commit per logical unit on the phase branch
-- [ ] Push: `origin` = `ice00cold/cue` (fork live, all branches, push auth verified — 2026-10-08; transfer to af-claw later if wanted)
+- [x] Create branch `feat/phase-0-foundation`
+- [x] Provision dev env: `source ./activate` with `HERMES_HOME=~/.cuehome` (and isolated `HERMES_RUNTIME_DIR`, e.g. `~/.cuehome/runtime`)
+- [x] Verify isolation: one-shot query (`hermes chat -q "ping"`) works AND `~/.hermes` is untouched
+- [x] User-facing CLI rename: `hermes` → `cue` entry point (console script, banner, help text). **Internal `HERMES_*` env vars and `get_hermes_home()` stay for now** — internal rename is a dedicated later phase, not Phase 0 churn
+- [x] `python scripts/check` green
+- [x] Commit per logical unit on the phase branch
+- [x] Push: `origin` = `ice00cold/cue` (fork live, all branches, push auth verified — 2026-10-08; transfer to af-claw later if wanted)
 
 ### Phase 1 — One main thread
 - [ ] Gateway: map all chats/platforms → single persistent session ID

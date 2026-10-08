@@ -102,10 +102,15 @@ function global:_hermesWorktreeHere {
     return $here.Equals($root, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
-function global:hermes {
+# `entry` runners: hermes is the internal name, cue the user-facing one; both
+# resolve to THIS checkout only. A function beats PATH, an alias, and the MSIX
+# execution alias. They run only while the shell is inside this worktree.
+function global:_hermesEntry {
+    $entry = $args[0]
+    $rest = @($args | Select-Object -Skip 1)
     if (-not (_hermesWorktreeHere)) {
         $here = (Get-Location).Path
-        Write-Error "hermes: $here is outside $($global:_hermesWorktree); refusing (the installed command is hidden while this checkout is active)" -ErrorAction Continue
+        Write-Error "$entry`: $here is outside $($global:_hermesWorktree); refusing (the installed command is hidden while this checkout is active)" -ErrorAction Continue
         $global:LASTEXITCODE = 1
         return
     }
@@ -121,11 +126,15 @@ function global:hermes {
             }
         }
         if (-not $py) { $py = 'python' }
-        & $py hermes @args
+        & $py $entry @rest
     } finally {
         Pop-Location
     }
 }
+
+function global:hermes { _hermesEntry 'hermes' @args }
+
+function global:cue { _hermesEntry 'cue' @args }
 
 function global:prompt {
     $prefix = ''
@@ -152,5 +161,5 @@ function global:deactivate {
     $global:_hermesWorktree = $null
     $global:_hermesWorktreeName = $null
     $global:_hermesSavedPrompt = $null
-    Remove-Item function:deactivate, function:hermes, function:_hermesWorktreeHere -ErrorAction SilentlyContinue
+    Remove-Item function:deactivate, function:hermes, function:cue, function:_hermesEntry, function:_hermesWorktreeHere -ErrorAction SilentlyContinue
 }

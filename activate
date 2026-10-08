@@ -9,9 +9,10 @@
 # Applies the composed pm env (PATH + tool vars) to the CURRENT shell, with
 # save/restore: `deactivate` undoes exactly what activation changed.
 #
-# `hermes` becomes a shell function for this checkout. It runs only while the
-# shell is inside this worktree and refuses outside it, so a sibling worktree
-# keeps its own command. A prompt prefix names the worktree.
+# `hermes` (internal name) and `cue` (user-facing name) become shell functions
+# for this checkout. They run only while the shell is inside this worktree and
+# refuse outside it, so a sibling worktree keeps its own commands. A prompt
+# prefix names the worktree.
 #
 # Scripts and other processes do not source this: they run under
 # `scripts/run-in-hermes-env`. Both build on scripts/_activation.sh.
@@ -100,27 +101,41 @@ _hermes_worktree_here() {
     [ "$(cd "$_hermes_top" && pwd -P)" = "$(cd "$__HERMES_WORKTREE" && pwd -P)" ]
 }
 
-hermes() {
+# `entry` runners: hermes is the internal name, cue the user-facing one; both
+# resolve to THIS checkout only (a function beats PATH, an alias, and a hashed
+# command, including the MSIX execution alias).
+_hermes_entry() {
+    # $1 = launcher script name in this checkout (hermes | cue)
+    local _hermes_entry_name="$1"
+    shift
     _hermes_worktree_here || {
-        printf '%s\n' "hermes: $(pwd) is outside $__HERMES_WORKTREE; refusing (the installed command is hidden while this checkout is active)" >&2
+        printf '%s\n' "$_hermes_entry_name: $(pwd) is outside $__HERMES_WORKTREE; refusing (the installed command is hidden while this checkout is active)" >&2
         return 1
     }
     (
         cd "$__HERMES_WORKTREE" || exit 1
         if [ -n "${PYTHON-}" ]; then
-            exec "$PYTHON" hermes "$@"
+            exec "$PYTHON" "$_hermes_entry_name" "$@"
         elif [ -x .venv/Scripts/python.exe ]; then
-            exec .venv/Scripts/python.exe hermes "$@"
+            exec .venv/Scripts/python.exe "$_hermes_entry_name" "$@"
         elif [ -x .venv/bin/python ]; then
-            exec .venv/bin/python hermes "$@"
+            exec .venv/bin/python "$_hermes_entry_name" "$@"
         elif [ -x venv/Scripts/python.exe ]; then
-            exec venv/Scripts/python.exe hermes "$@"
+            exec venv/Scripts/python.exe "$_hermes_entry_name" "$@"
         elif [ -x venv/bin/python ]; then
-            exec venv/bin/python hermes "$@"
+            exec venv/bin/python "$_hermes_entry_name" "$@"
         else
-            exec python hermes "$@"
+            exec python "$_hermes_entry_name" "$@"
         fi
     )
+}
+
+hermes() {
+    _hermes_entry hermes "$@"
+}
+
+cue() {
+    _hermes_entry cue "$@"
 }
 
 _hermes_prompt() {
@@ -168,7 +183,7 @@ deactivate() {
     unset __HERMES_SAVED_PATH __HERMES_KEY_LIST __HERMES_ACTIVATED \
           __HERMES_WORKTREE __HERMES_WORKTREE_NAME \
           __HERMES_SAVED_PS1 __HERMES_SAVED_PROMPT_COMMAND
-    unset -f deactivate hermes _hermes_worktree_here _hermes_prompt
+    unset -f deactivate hermes cue _hermes_entry _hermes_worktree_here _hermes_prompt
     unset _hermes_k _hermes_was _hermes_old _hermes_top
 }
 
