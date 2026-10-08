@@ -7,7 +7,7 @@ import { type CSSProperties, type FC, type ReactNode, useId, useState } from 're
 
 import { useSessionView } from '@/app/chat/session-view'
 import { Chip } from '@/components/onboarding-chat/chip'
-import { AccentSwatch, LayoutPreviewCard, LAYOUTS, NOUS_ACCENT } from '@/components/onboarding-chat/options'
+import { AccentSwatch, LayoutPreviewCard, LAYOUTS } from '@/components/onboarding-chat/options'
 import { ConnectorLogo } from '@/components/ui/connector-logo'
 import { SearchField } from '@/components/ui/search-field'
 import { useI18n } from '@/i18n'
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import type { ClarifyQuestion } from '@/store/clarify'
 import { pluginNeedsApp, useOnboardingPluginList } from '@/store/onboarding-plugins'
 import { useTheme } from '@/themes'
+import { NOUS_ACCENT } from '@/themes/accents'
 import { getBaseColors } from '@/themes/context'
 
 import { ChoiceLabel } from './core/choice-row'

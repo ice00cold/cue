@@ -4,7 +4,6 @@ import { atom } from 'nanostores'
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest'
 
 import { PRIMARY_SESSION_VIEW, type SessionView, SessionViewProvider } from '@/app/chat/session-view'
-import { accentsFor, NOUS_ACCENT } from '@/components/onboarding-chat/options'
 import { I18nProvider } from '@/i18n'
 import {
   answerSetupCard,
@@ -15,6 +14,7 @@ import {
 } from '@/store/clarify'
 import { rememberServerRequest, resetServerRequestsForTests } from '@/store/server-requests'
 import { $accentOverride } from '@/themes/accent-override'
+import { accentsFor, NOUS_ACCENT } from '@/themes/accents'
 
 import { SetupChoosePending } from './setup-pending'
 

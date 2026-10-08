@@ -22,6 +22,7 @@ import { $connection } from '@/store/session'
 import { setAppearance } from '@/store/translucency'
 
 import { $accentOverride } from './accent-override'
+import { normalizeAccentId, resolveAccent } from './accents'
 import {
   $backendCustomCSS,
   $backendThemes,
@@ -48,6 +49,9 @@ const PROFILE_MODES_KEY = 'hermes-desktop-profile-modes-v1'
 // Last active profile, recorded so the boot-time paint can pick that profile's
 // theme before the gateway reports which profile actually launched.
 const LAST_PROFILE_KEY = 'hermes-desktop-active-profile-v1'
+// Per-profile accent swatch id: { [profileKey]: id }. No global slot: a profile
+// without its own pick paints its theme's accent.
+const PROFILE_ACCENTS_KEY = 'hermes-desktop-profile-accents-v1'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -121,6 +125,18 @@ const profilePref = <T extends string>(record: string, legacy: string, normalize
 export const skinPref = profilePref(PROFILE_SKINS_KEY, SKIN_KEY, normalizeSkin)
 export const modePref = profilePref(PROFILE_MODES_KEY, MODE_KEY, normalizeMode)
 
+// Unlike skin and mode, an accent never mirrors into a global slot: a Bot Mode
+// hop onto another profile must not inherit a color picked for this one.
+export const accentPref = {
+  stored: (profile: string): null | string => normalizeAccentId(storedStringRecord(PROFILE_ACCENTS_KEY)[profile] ?? null),
+  assign: (profile: string, value: null | string): void => {
+    const { [profile]: _previous, ...others } = storedStringRecord(PROFILE_ACCENTS_KEY)
+    const id = normalizeAccentId(value)
+
+    persistStringRecord(PROFILE_ACCENTS_KEY, id === null ? others : { ...others, [profile]: id })
+  }
+}
+
 // The bridge's local skin is only a fallback for the profile this window booted
 // into. A desktop-side pick remains the source of truth, and switching to a
 // different profile cannot borrow a skin from this machine's initial profile.
@@ -135,7 +151,7 @@ const storedSkin = (profile: string): string =>
   (profile === BOOT_PROFILE_KEY ? (localDisplaySkinName ?? DEFAULT_SKIN_NAME) : DEFAULT_SKIN_NAME)
 
 /** Everything a peer window could change that this one has to repaint for. */
-const APPEARANCE_KEYS = new Set([SKIN_KEY, PROFILE_SKINS_KEY, MODE_KEY, PROFILE_MODES_KEY])
+const APPEARANCE_KEYS = new Set([SKIN_KEY, PROFILE_SKINS_KEY, MODE_KEY, PROFILE_MODES_KEY, PROFILE_ACCENTS_KEY])
 
 const rememberActiveProfileKey = (profile: string) => persistString(LAST_PROFILE_KEY, profile)
 
@@ -400,6 +416,19 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark', chatFontFamily 
   }
 }
 
+// A plugin's `$accentOverride` beats the profile's pick, which beats the
+// theme's own accent. The pick resolves against the painted surface so Mono flips.
+function accentedTheme(
+  theme: DesktopTheme,
+  mode: 'light' | 'dark',
+  override: null | string,
+  accentId: null | string
+): DesktopTheme {
+  const accent = override ?? resolveAccent(accentId, renderedModeFor(theme.colors, mode) === 'dark')
+
+  return accent === null ? theme : retintTheme(theme, accent)
+}
+
 // Pin Electron's nativeTheme to the app's mode so the NATIVE window chrome
 // (macOS vibrancy material, titlebar, pre-paint background) matches the app
 // theme instead of the OS appearance. An explicit light/dark pick is forced;
@@ -414,7 +443,8 @@ if (typeof window !== 'undefined') {
   const profile = BOOT_PROFILE_KEY
   const pref = modePref.resolve(profile)
   const resolved = resolveMode(pref)
-  const theme = deriveTheme(normalizeSkin(storedSkin(profile)), resolved)
+  const skin = deriveTheme(normalizeSkin(storedSkin(profile)), resolved)
+  const theme = accentedTheme(skin, resolved, $accentOverride.get(), accentPref.stored(profile))
   applyTheme(theme, resolved)
   syncNativeTheme(pref, renderedModeFor(theme.colors, resolved))
 }
@@ -444,6 +474,9 @@ interface ThemeContextValue {
    */
   previewTheme: (name: string, mode: 'light' | 'dark') => void
   clearThemePreview: () => void
+  /** The live profile's stored accent swatch id; `null` paints the theme's own accent. */
+  accent: null | string
+  setAccent: (id: null | string) => void
 }
 
 const SKIN_LIST = BUILTIN_THEME_LIST.map(({ name, label, description }) => ({ name, label, description }))
@@ -458,7 +491,9 @@ const ThemeContext = createContext<ThemeContextValue>({
   setTheme: () => {},
   setMode: () => {},
   previewTheme: () => {},
-  clearThemePreview: () => {}
+  clearThemePreview: () => {},
+  accent: null,
+  setAccent: () => {}
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -499,12 +534,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     typeof window === 'undefined' ? 'system' : modePref.resolve(BOOT_PROFILE_KEY)
   )
 
+  const [accent, setAccentState] = useState<null | string>(() =>
+    typeof window === 'undefined' ? null : accentPref.stored(BOOT_PROFILE_KEY)
+  )
+
   // Follow profile switches: paint the profile's assigned skin + mode and
   // remember it for the next boot's first paint.
   useEffect(() => {
     rememberActiveProfileKey(profileKey)
     setThemeNameState(storedSkin(profileKey))
     setModeState(modePref.resolve(profileKey))
+    setAccentState(accentPref.stored(profileKey))
   }, [profileKey])
 
   // Appearance is per-profile localStorage, and every desktop window is another
@@ -521,6 +561,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
       setThemeNameState(storedSkin(live))
       setModeState(modePref.resolve(live))
+      setAccentState(accentPref.stored(live))
     }
 
     window.addEventListener('storage', onStorage)
@@ -558,14 +599,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [paintedName, paintedMode, userThemes, backendThemes, backendCustomCSS, registryVersion]
   )
 
-  // Dev-only accent retint. `null` (always, in production) returns the theme
-  // untouched, and retintTheme is an identity when the seed already matches —
-  // so the picker costs nothing until it's actually moved off the default.
+  // retintTheme is an identity when the seed already matches, so an accent
+  // costs nothing until it actually moves off the theme's own.
   const accentOverride = useStore($accentOverride)
 
   const paintedTheme = useMemo(
-    () => (accentOverride === null ? activeTheme : retintTheme(activeTheme, accentOverride)),
-    [activeTheme, accentOverride]
+    () => accentedTheme(activeTheme, paintedMode, accentOverride, accent),
+    [activeTheme, paintedMode, accentOverride, accent]
   )
 
   // What actually gets painted (matches the `.dark` class applyTheme toggles).
@@ -600,6 +640,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     modePref.assign(liveProfile(), next)
   }, [])
 
+  const setAccent = useCallback((id: null | string) => {
+    recordFeatureUse('skins')
+    setAccentState(normalizeAccentId(id))
+    accentPref.assign(liveProfile(), id)
+  }, [])
+
   const previewTheme = useCallback((name: string, previewMode: 'light' | 'dark') => {
     setPreview(resolveTheme(name) ? { name, mode: previewMode } : null)
   }, [])
@@ -632,7 +678,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setTheme,
       setMode,
       previewTheme,
-      clearThemePreview
+      clearThemePreview,
+      accent,
+      setAccent
     }),
     [
       paintedTheme,
@@ -644,7 +692,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setTheme,
       setMode,
       previewTheme,
-      clearThemePreview
+      clearThemePreview,
+      accent,
+      setAccent
     ]
   )
 
