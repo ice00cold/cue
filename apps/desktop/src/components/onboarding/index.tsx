@@ -214,7 +214,6 @@ export function DesktopOnboardingOverlay({
   const { t } = useI18n()
   const onboarding = useStore($desktopOnboarding)
   const boot = useStore($desktopBoot)
-  const questionnaireOpen = useStore($questionnaireOpen)
   const statusbarVisible = useStore($statusbarVisible)
   useStore($onboardingSurfaceClear)
   const onCompletedRef = useRef(onCompleted)
@@ -367,21 +366,15 @@ export function DesktopOnboardingOverlay({
     }
   }, [ctx, onboarding.flow.status, onboarding.manual, onboarding.providers])
 
-  // D22: the questionnaire is this overlay's first state; the picker, ready and confirm screens follow it.
-  if (questionnaireOpen && !onboarding.manual) {
-    return (
-      <OverlaySurface statusbarVisible={statusbarVisible}>
-        <div className="relative w-full max-w-[45rem] overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) p-5 shadow-nous">
-          <Suspense fallback={null}>
-            <QuestionnaireScreen refreshReadiness={() => refreshOnboarding(ctx).then(() => undefined)} />
-          </Suspense>
-        </div>
-      </OverlaySurface>
-    )
-  }
-
+  // D22: while the questionnaire holds the surface it is this overlay's first state; the picker, ready
+  // and confirm screens follow it.
   if (!onboarding.manual && onboardingSurfaceActive()) {
-    return null
+    return (
+      <QuestionnaireLayer
+        refreshReadiness={() => refreshOnboarding(ctx).then(() => undefined)}
+        statusbarVisible={statusbarVisible}
+      />
+    )
   }
 
   // Mount from frame 1 so we replace the boot overlay seamlessly. The
@@ -487,6 +480,30 @@ export function DesktopOnboardingOverlay({
             <Preparing boot={boot} />
           )}
         </div>
+      </div>
+    </OverlaySurface>
+  )
+}
+
+function QuestionnaireLayer({
+  refreshReadiness,
+  statusbarVisible
+}: {
+  refreshReadiness: () => Promise<void>
+  statusbarVisible: boolean
+}) {
+  const open = useStore($questionnaireOpen)
+
+  if (!open) {
+    return null
+  }
+
+  return (
+    <OverlaySurface statusbarVisible={statusbarVisible}>
+      <div className="relative w-full max-w-[45rem] overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) p-5 shadow-nous">
+        <Suspense fallback={null}>
+          <QuestionnaireScreen refreshReadiness={refreshReadiness} />
+        </Suspense>
       </div>
     </OverlaySurface>
   )
