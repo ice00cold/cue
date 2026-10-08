@@ -64,9 +64,13 @@ function __hermes_worktree_here
     test (path resolve $top) = (path resolve $__hermes_worktree)
 end
 
-function hermes --description 'hermes of the activated checkout'
+# `entry` runners: hermes is the internal name, cue the user-facing one; both
+# resolve to THIS checkout only. A function beats PATH.
+function __hermes_entry --description 'run a launcher script of the activated checkout'
+    set -l entry $argv[1]
+    set -e argv[1]
     if not __hermes_worktree_here
-        echo "hermes: $PWD is outside $__hermes_worktree; refusing (the installed command is hidden while this checkout is active)" >&2
+        echo "$entry: $PWD is outside $__hermes_worktree; refusing (the installed command is hidden while this checkout is active)" >&2
         return 1
     end
     set -l python python
@@ -78,10 +82,18 @@ function hermes --description 'hermes of the activated checkout'
         set python $__hermes_worktree/venv/bin/python
     end
     pushd $__hermes_worktree >/dev/null
-    $python hermes $argv
+    $python $entry $argv
     set -l code $status
     popd >/dev/null
     return $code
+end
+
+function hermes --description 'hermes of the activated checkout'
+    __hermes_entry hermes $argv
+end
+
+function cue --description 'cue (user-facing name) of the activated checkout'
+    __hermes_entry cue $argv
 end
 
 functions -c fish_prompt __hermes_saved_fish_prompt
@@ -107,5 +119,5 @@ function deactivate --description 'undo activate.fish'
     functions -c __hermes_saved_fish_prompt fish_prompt
     functions -e __hermes_saved_fish_prompt
     set -eg __hermes_keys __hermes_worktree __hermes_worktree_name
-    functions -e deactivate hermes __hermes_worktree_here
+    functions -e deactivate hermes cue __hermes_entry __hermes_worktree_here
 end

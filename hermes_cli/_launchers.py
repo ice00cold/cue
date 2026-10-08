@@ -102,7 +102,11 @@ def installation_command(repo_root: Path, args=(), *, module: str = "hermes_cli.
 WINDOWS_BIN_LAUNCHERS = ("hermes", "hermes-acp")
 
 #: command name -> (entry module, callable) — mirrors pyproject.toml
-#: [project.scripts].
+#: [project.scripts]. Count-locked to WINDOWS_BIN_LAUNCHERS by
+#: ``venv_sync.publish_launchers`` (len(written) == len(ENTRY_POINTS)); a
+#: `cue` launcher joins this set together with the installer lockstep
+#: (scripts/install.ps1, _install_repair.py) in the internal-rename phase —
+#: the `cue` console script itself comes from [project.scripts] today.
 ENTRY_POINTS = {
     "hermes": ("hermes_cli.main", "main"),
     "hermes-acp": ("acp_adapter.entry", "main"),
