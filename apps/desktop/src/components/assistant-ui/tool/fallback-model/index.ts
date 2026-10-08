@@ -206,6 +206,15 @@ const TOOL_META: Record<ToolTitleKey, ToolMetaSpec> = {
     icon: 'search',
     tone: 'agent'
   },
+  // Rows in old canary/RC chats; the tools are gone.
+  setup_choose: {
+    icon: 'question',
+    tone: 'agent'
+  },
+  start_chat: {
+    icon: 'comment',
+    tone: 'agent'
+  },
   terminal: {
     icon: 'terminal',
     tone: 'terminal'
