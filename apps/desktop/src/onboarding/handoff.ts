@@ -24,7 +24,7 @@ import {
   stepOptions,
   visibleSteps
 } from './flow'
-import { type InferenceClock, waitForInference } from './inference'
+import { type InferenceClock, realClock, START_WAIT_MS, waitForInference } from './inference'
 import { closeQuestionnaire, setStarting, showPreparing } from './store'
 
 export const NO_TASK_ASK = 'What can you help me with? Ask me what I want to do first.'
@@ -201,16 +201,20 @@ export async function finish(facts: Facts, answers: Answers, deps: HandoffDeps):
   return 'started'
 }
 
-/** Resolves once the free account exists or has failed for good. */
-function freeAccountSettled(): Promise<void> {
-  return new Promise(resolve => {
-    const stop = $freeTierStatus.listen(status => {
+/** Resolves once the free account exists, has failed for good, or the Start wait has passed. */
+function freeAccountSettled(clock: InferenceClock): Promise<void> {
+  let stop = () => {}
+
+  const settled = new Promise<void>(resolve => {
+    stop = $freeTierStatus.listen(status => {
       if (freeAccountState(status) !== 'waiting') {
-        stop()
         resolve()
       }
     })
   })
+
+  // A retryable failure (rate limit) can back off for minutes; Skip waits no longer than Start (D23).
+  return Promise.race([settled, clock.sleep(START_WAIT_MS)]).finally(() => stop())
 }
 
 /**
@@ -218,12 +222,12 @@ function freeAccountSettled(): Promise<void> {
  * the free account is still being made the overlay says "Starting Hermes…" and then moves on to the
  * ready screen or the picker on its own.
  */
-export async function skipSetup(deps: Pick<HandoffDeps, 'refreshReadiness' | 'request'>): Promise<void> {
+export async function skipSetup(deps: Pick<HandoffDeps, 'clock' | 'refreshReadiness' | 'request'>): Promise<void> {
   await setRun(deps.request, false)
 
   if (freeAccountState($freeTierStatus.get()) === 'waiting') {
     showPreparing()
-    await freeAccountSettled()
+    await freeAccountSettled(deps.clock ?? realClock)
   }
 
   closeQuestionnaire('skipped')

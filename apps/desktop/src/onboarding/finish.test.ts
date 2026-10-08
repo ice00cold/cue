@@ -168,7 +168,8 @@ describe('skipSetup', () => {
     const minting = { ...MINTED, available: false, has_guest: false }
 
     $freeTierStatus.set(minting)
-    const skipping = skipSetup(deps)
+    // A clock that never reaches the Start deadline: only the account settling ends the hold.
+    const skipping = skipSetup({ ...deps, clock: { now: () => 0, sleep: () => new Promise<void>(() => {}) } })
 
     await Promise.resolve()
     await Promise.resolve()
@@ -179,5 +180,16 @@ describe('skipSetup', () => {
     await skipping
 
     expect($questionnaire.get().phase).toBe('skipped')
+  })
+
+  it('stops holding on Preparing after the Start wait when the account keeps failing to be made', async () => {
+    const { deps } = harness()
+    const rateLimited = { ...MINTED, available: false, error_code: 'anon_rate_limited', has_guest: false, retryable: true }
+
+    $freeTierStatus.set(rateLimited)
+    await skipSetup(deps)
+
+    expect($questionnaire.get().phase).toBe('skipped')
+    expect(onboardingSurfaceActive()).toBe(false)
   })
 })
