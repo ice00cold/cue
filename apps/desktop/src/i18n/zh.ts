@@ -8,6 +8,7 @@ import { zhModelMenu } from './zh_model_menu'
 import { zhNotices } from './zh_notices'
 import { zhOnboarding } from './zh_onboarding'
 import { zhProjects } from './zh_projects'
+import { zhQuestionnaire } from './zh_questionnaire'
 import { zhSharedMetrics } from './zh_shared_metrics'
 
 export const zhOverrides = {
@@ -17,6 +18,7 @@ export const zhOverrides = {
     copyUrl: '复制链接',
     close: '关闭'
   },
+  questionnaire: zhQuestionnaire,
   sharedMetrics: zhSharedMetrics,
   intro: introZh,
   connectors: {

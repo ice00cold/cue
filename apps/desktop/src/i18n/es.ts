@@ -8,10 +8,12 @@ import { esModelMenu } from './es_model_menu'
 import { esNotices } from './es_notices'
 import { esOnboarding } from './es_onboarding'
 import { esProjects } from './es_projects'
+import { esQuestionnaire } from './es_questionnaire'
 import { esSharedMetrics } from './es_shared_metrics'
 import { introEs } from './intro-es'
 
 export const esOverrides = {
+  questionnaire: esQuestionnaire,
   sharedMetrics: esSharedMetrics,
   intro: introEs,
   connectors: {

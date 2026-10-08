@@ -9,6 +9,7 @@ import { jaNotices } from './ja_notices'
 import { jaOnboarding } from './ja_onboarding'
 import { jaPluginSettings } from './ja_plugins'
 import { jaProjects } from './ja_projects'
+import { jaQuestionnaire } from './ja_questionnaire'
 import { jaSharedMetrics } from './ja_shared_metrics'
 
 export const jaOverrides = {
@@ -18,6 +19,7 @@ export const jaOverrides = {
     copyUrl: 'リンクをコピー',
     close: '閉じる'
   },
+  questionnaire: jaQuestionnaire,
   sharedMetrics: jaSharedMetrics,
   intro: introJa,
   sessionImport: {

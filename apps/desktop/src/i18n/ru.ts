@@ -7,6 +7,7 @@ import { ruNotices } from './ru_notices'
 import { ruOnboarding } from './ru_onboarding'
 import { ruPluginSettings } from './ru_plugins'
 import { ruProjects } from './ru_projects'
+import { ruQuestionnaire } from './ru_questionnaire'
 import { ruSharedMetrics } from './ru_shared_metrics'
 
 // RU_PLURAL: (count, one, few, many) — русские формы сущ. падежа
@@ -31,6 +32,7 @@ const RU_NOUN = (count: number | string, one: string, few: string, many: string)
 }
 
 export const ruOverrides = {
+  questionnaire: ruQuestionnaire,
   sharedMetrics: ruSharedMetrics,
   sessionImport: {
     title: 'Продолжить из другого приложения',

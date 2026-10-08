@@ -7,11 +7,13 @@ import { deModelMenu } from './de_model_menu'
 import { deNotices } from './de_notices'
 import { deOnboarding } from './de_onboarding'
 import { deProjects } from './de_projects'
+import { deQuestionnaire } from './de_questionnaire'
 import { deSharedMetrics } from './de_shared_metrics'
 import { defineLocale, type TranslationOverrides } from './define-locale'
 import { introDe } from './intro-de'
 
 export const deOverrides = {
+  questionnaire: deQuestionnaire,
   sharedMetrics: deSharedMetrics,
   intro: introDe,
   connectors: {

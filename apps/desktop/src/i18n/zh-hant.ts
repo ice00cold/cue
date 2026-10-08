@@ -10,6 +10,7 @@ import { zhHantCommandCenter } from './zh-hant_command_center'
 import { zhHantCommon } from './zh-hant_common'
 import { zhHantConnectors } from './zh-hant_connectors'
 import { zhHantDiagnostics } from './zh-hant_diagnostics'
+import { zhHantQuestionnaire } from './zh-hant_questionnaire'
 import { zhHantSettings } from './zh-hant_settings'
 
 export const zhHantOverrides = {
@@ -30,6 +31,7 @@ export const zhHantOverrides = {
     copyUrl: '複製連結',
     close: '關閉'
   },
+  questionnaire: zhHantQuestionnaire,
   sharedMetrics: {
     consentTitle: '分享使用統計？',
     dialogTitle: '使用統計',

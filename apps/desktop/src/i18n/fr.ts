@@ -8,10 +8,12 @@ import { frModelMenu } from './fr_model_menu'
 import { frNotices } from './fr_notices'
 import { frOnboarding } from './fr_onboarding'
 import { frProjects } from './fr_projects'
+import { frQuestionnaire } from './fr_questionnaire'
 import { frSharedMetrics } from './fr_shared_metrics'
 import { introFr } from './intro-fr'
 
 export const frOverrides = {
+  questionnaire: frQuestionnaire,
   sharedMetrics: frSharedMetrics,
   intro: introFr,
   connectors: {
