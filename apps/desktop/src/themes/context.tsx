@@ -539,9 +539,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     typeof window === 'undefined' ? 'system' : modePref.resolve(BOOT_PROFILE_KEY)
   )
 
-  const [accent, setAccentState] = useState<null | string>(() =>
-    typeof window === 'undefined' ? null : accentPref.stored(BOOT_PROFILE_KEY)
-  )
+  // readKey already treats missing storage as absent, so no window guard here.
+  const [accent, setAccentState] = useState<null | string>(() => accentPref.stored(BOOT_PROFILE_KEY))
 
   // Follow profile switches: paint the profile's assigned skin + mode and
   // remember it for the next boot's first paint.
