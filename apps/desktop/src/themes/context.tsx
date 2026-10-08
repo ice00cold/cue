@@ -15,7 +15,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { $registryVersion } from '@/contrib/registry'
 import { matchesQuery, useMediaQuery } from '@/hooks/use-media-query'
-import { persistString, persistStringRecord, storedString, storedStringRecord } from '@/lib/storage'
+import { persistString, persistStringRecord, storedString, storedStringRecord, writeKey } from '@/lib/storage'
 import { recordFeatureUse } from '@/store/desktop-metrics'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { $connection } from '@/store/session'
@@ -52,6 +52,9 @@ const LAST_PROFILE_KEY = 'hermes-desktop-active-profile-v1'
 // Per-profile accent swatch id: { [profileKey]: id }. No global slot: a profile
 // without its own pick paints its theme's accent.
 const PROFILE_ACCENTS_KEY = 'hermes-desktop-profile-accents-v1'
+// The old onboarding wizard's accent never applied after a restart; drop it
+// rather than carry a color the user never saw persist.
+const LEGACY_WIZARD_ANSWERS_KEY = 'hermes-onboarding-wizard-answers-v1'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -440,6 +443,8 @@ const syncNativeTheme = (pref: ThemeMode, rendered: 'light' | 'dark') =>
 // active profile's appearance so a non-default profile relaunch paints its own
 // skin + light/dark mode.
 if (typeof window !== 'undefined') {
+  writeKey(LEGACY_WIZARD_ANSWERS_KEY, null)
+
   const profile = BOOT_PROFILE_KEY
   const pref = modePref.resolve(profile)
   const resolved = resolveMode(pref)

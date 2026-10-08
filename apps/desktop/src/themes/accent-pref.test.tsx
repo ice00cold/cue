@@ -6,6 +6,7 @@ import { hexToOklch, hueDelta, luminance } from './color'
 import { accentPref, modePref, ThemeProvider, useTheme } from './context'
 
 const ACCENTS_KEY = 'hermes-desktop-profile-accents-v1'
+const WIZARD_KEY = 'hermes-onboarding-wizard-answers-v1'
 const PINK = '#e0218a'
 const GREEN = '#2ea043'
 
@@ -159,6 +160,20 @@ describe('boot pre-paint', () => {
 
     return primary()
   }
+
+  it('deletes the old wizard answers key without applying its accent', async () => {
+    window.localStorage.setItem('hermes-desktop-mode-v1', 'light')
+    const untinted = await boot()
+
+    vi.resetModules()
+    window.localStorage.setItem(WIZARD_KEY, JSON.stringify({ accent: PINK }))
+
+    const { $onboardingAnswers } = await import('@/store/onboarding-answers')
+
+    expect($onboardingAnswers.get().accent).toBeNull()
+    expect(await boot()).toBe(untinted)
+    expect(window.localStorage.getItem(WIZARD_KEY)).toBeNull()
+  })
 
   it('paints the last profile accent before the provider mounts', async () => {
     window.localStorage.setItem('hermes-desktop-mode-v1', 'light')
