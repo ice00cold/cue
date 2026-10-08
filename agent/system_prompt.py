@@ -541,6 +541,29 @@ def _memory_parts(agent: Any) -> List[str]:
     return parts
 
 
+def _goals_parts(agent: Any) -> List[str]:
+    """Compact active-goals block (Cue pillar 2). Rendered ONLY where the prompt is
+    built — session start or the sanctioned compression rebuild — so the cached prefix
+    is never broken by goal churn: a goals_update mid-conversation changes nothing here
+    (the tool result carries the new state), and the block itself is a pure function of
+    ``<home>/goals.yaml`` with no timestamps. Empty store → no block, so a fresh install
+    sees zero prompt change. Gated on the goals tools (an agent that cannot update goals
+    gets no orientation block) and skipped for context-file-free forks (delegate children
+    receive their goal context through the delegation prompt)."""
+    if getattr(agent, "skip_context_files", False):
+        return []
+    if "goals_read" not in (agent.valid_tool_names or set()):
+        return []
+    try:
+        from tools.goals_store import GoalsStore
+
+        block = GoalsStore(_agent_home(agent)).format_for_system_prompt()
+    except Exception:
+        logger.debug("goals block skipped", exc_info=True)  # prompt build must never fail on it
+        return []
+    return [block] if block else []
+
+
 def _identity_parts(agent: Any, ctx_len: Optional[int]) -> Tuple[List[str], bool]:
     """SOUL.md (primary identity; cron keeps the persona while skipping cwd
     instructions, scoped to the agent's OWN home) or the default identity.
@@ -781,6 +804,9 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Skills are runtime-mutable, so the index leads the volatile band: on a longest-prefix
     # backend an unchanged index stays inside the reused prefix; a changed one re-prefills from here.
     volatile_parts: List[str] = [skills_prompt, *_memory_parts(agent)]
+    # Goals ride the volatile band after memory: user state that may differ between
+    # sessions, byte-stable for the conversation's life (see _goals_parts).
+    volatile_parts.extend(_goals_parts(agent))
     # Plugin sections are confined to one coarse anchor in the volatile tail so
     # a resumed process can reconstruct the stable prefix without re-running plugins.
     volatile_parts.extend(_plugin_section_blocks(_frozen_plugin_prompt_sections(agent), "after_memory"))
