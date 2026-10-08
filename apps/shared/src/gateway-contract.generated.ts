@@ -4432,25 +4432,6 @@ export interface ClarifyQuestion {
 export interface ClarifyResult {
   answers?: Record<string, string | null> | null
 }
-export interface SetupChooseRequestParams {
-  session_id: string
-  kind: SetupChooseKind
-  question: string
-  options?: SetupChooseOption[] | null
-  multi_select?: boolean
-  preselected?: string[] | null
-}
-export type SetupChooseKind = 'question' | 'accent' | 'theme' | 'layout' | 'connectors' | 'plugins' | 'tour' | 'fork' | 'machine_use'
-export interface SetupChooseOption {
-  id: string
-  label: string
-  detail?: string | null
-}
-export interface SetupChooseResult {
-  picked?: string | string[] | null
-  label?: string | string[] | null
-  said?: string | null
-}
 /** ``tui_gateway/server.py::_approval_request_payload`` — the command is redacted server-side. */
 export interface ApprovalRequestParams {
   session_id: string
@@ -5768,7 +5749,6 @@ export interface ServerRequestMap {
   'preview.read': { params: ReadRangeRequestParams; result: ValueResult }
   /** Masked value for a named env var (skills / setup flows). */
   secret: { params: SecretRequestParams; result: ValueResult }
-  setup_choose: { params: SetupChooseRequestParams; result: SetupChooseResult }
   /** Masked sudo password for the terminal tool. */
   sudo: { params: SudoRequestParams; result: ValueResult }
   /** Read the visible in-app terminal buffer (JSON text answer). */
@@ -5792,7 +5772,6 @@ export const SERVER_REQUEST_METHODS = [
   'preview.act',
   'preview.read',
   'secret',
-  'setup_choose',
   'sudo',
   'terminal.read',
   'tour',
