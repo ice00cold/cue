@@ -83,13 +83,14 @@ export function openQuestionnaire(): void {
 /** A step that stops applying while it is on screen (the connector list became unavailable) gives way to the next. */
 function onVisibleStep(state: QuestionnaireState): QuestionnaireState {
   const ids = visibleIds(state)
+  const current = state.stepId
 
-  if (state.view !== 'steps' || !state.stepId || ids.includes(state.stepId)) {
+  if (state.view !== 'steps' || !current || ids.includes(current)) {
     return state
   }
 
   const order = FLOW.map(step => step.id)
-  const next = ids.find(id => order.indexOf(id) > order.indexOf(state.stepId!))
+  const next = ids.find(id => order.indexOf(id) > order.indexOf(current))
 
   return { ...state, ...(next ? { stepId: next } : { stepId: null, view: 'review' }) }
 }

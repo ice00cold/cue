@@ -12,7 +12,9 @@ function firstAndMore(labels: string[], none: string, copy: QuestionnaireTransla
   return labels.length === 1 ? labels[0] : copy.summary.more(labels[0], labels.length - 1)
 }
 
-const SUMMARIES: Record<StepId, (state: QuestionnaireState, copy: QuestionnaireTranslations) => string> = {
+type Summary = (state: QuestionnaireState, copy: QuestionnaireTranslations) => string
+
+const SUMMARIES = {
   accent: ({ answers }, copy) =>
     answers.accent?.startsWith('custom:')
       ? copy.summary.custom
@@ -39,7 +41,7 @@ const SUMMARIES: Record<StepId, (state: QuestionnaireState, copy: QuestionnaireT
   name: ({ answers }, copy) => chosenName(answers) ?? copy.skipped,
   task: ({ answers, facts }, copy) => chosenTask(facts, answers)?.label(copy) ?? copy.skipped,
   tour: ({ answers }, copy) => (answers.tour === 'quick' ? copy.summary.tour : copy.summary.noTour)
-}
+} satisfies Record<StepId, Summary>
 
 /** The trail chip's text for a passed step. */
 export function answerSummary(stepId: StepId, state: QuestionnaireState, copy: QuestionnaireTranslations): string {

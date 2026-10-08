@@ -96,7 +96,7 @@ export function Questionnaire({ enabled, openDefaultChat, requestGateway }: Ques
   return null
 }
 
-const STEP_VIEWS: Record<StepId, ComponentType> = {
+const STEP_VIEWS = {
   accent: AccentStep,
   apps: AppsStep,
   connectors: ConnectorsStep,
@@ -105,7 +105,7 @@ const STEP_VIEWS: Record<StepId, ComponentType> = {
   name: NameStep,
   task: TaskStep,
   tour: TourStep
-}
+} satisfies Record<StepId, ComponentType>
 
 function Trail({ state }: { state: QuestionnaireState }) {
   const { t } = useI18n()
@@ -139,7 +139,7 @@ function Preparing() {
 }
 
 /** The questionnaire inside the first-run overlay. `refreshReadiness` is the overlay's own readiness round. */
-export function QuestionnaireScreen({ refreshReadiness }: { refreshReadiness: () => Promise<unknown> }) {
+export function QuestionnaireScreen({ refreshReadiness }: { refreshReadiness: () => Promise<void> }) {
   const { t } = useI18n()
   const state = useStore($questionnaire)
   const host = useStore($questionnaireHost)

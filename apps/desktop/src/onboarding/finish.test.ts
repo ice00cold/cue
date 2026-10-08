@@ -43,18 +43,18 @@ function fakeClock(): InferenceClock {
 function harness({ ready = true, launchProfile = 'default' } = {}) {
   const log: string[] = []
 
-  const request: OnboardingRequester = async <T>(method: string, params?: Record<string, unknown>) => {
+  const replies = new Map<string, object>([
+    ['free_tier.ack_notice', { acked: true }],
+    ['free_tier.status', { ...MINTED, notice_pending: false }],
+    ['setup.runtime_check', { ok: ready }],
+    ['setup.status', { free_tier_account: true, free_tier_route: true, provider_configured: true, ready }]
+  ])
+
+  const request: OnboardingRequester = async <T>(method: string, params?: Parameters<OnboardingRequester>[1]) => {
     log.push(params && 'run' in params ? `${method}:${params.run}:${params.mark_profile_offered}` : method)
 
-    const answers: Record<string, unknown> = {
-      'free_tier.ack_notice': { acked: true },
-      'free_tier.status': { ...MINTED, notice_pending: false },
-      'setup.runtime_check': { ok: ready },
-      'setup.status': { free_tier_account: true, free_tier_route: true, provider_configured: true, ready }
-    }
-
     // SAFETY: each method answers the shape the code under test reads back.
-    return (answers[method] ?? {}) as T
+    return (replies.get(method) ?? {}) as T
   }
 
   const deps: HandoffDeps = {
@@ -65,7 +65,9 @@ function harness({ ready = true, launchProfile = 'default' } = {}) {
 
       return 'runtime-1'
     },
-    refreshReadiness: async () => log.push('readiness'),
+    refreshReadiness: async () => {
+      log.push('readiness')
+    },
     request,
     runTour: async () => {
       log.push(`tour:open=${onboardingSurfaceActive()}`)

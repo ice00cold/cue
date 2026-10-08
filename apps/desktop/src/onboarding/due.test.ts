@@ -6,9 +6,9 @@ import { $questionnaireAvailable, decideQuestionnaire, type OnboardingRequester,
 import { $questionnaire, closeQuestionnaire } from './store'
 
 const answering =
-  (value: unknown): OnboardingRequester =>
+  (value: null | Record<string, boolean | number | string>): OnboardingRequester =>
   async <T>() =>
-    // SAFETY: the due check treats the answer as unknown and validates its shape.
+    // SAFETY: the due check validates the answer's shape before reading it.
     value as T
 
 const failing: OnboardingRequester = async () => {
@@ -47,6 +47,8 @@ describe('questionnaire due check', () => {
 
   it('reads only the new shape', () => {
     expect(readRunState({ eligible: true, run: false })).toEqual({ eligible: true, run: false })
-    expect(readRunState({ eligible: true, intro: 'seen' })).toBeNull()
+    const agenticStateAnswer = { eligible: true, intro: 'seen' }
+
+    expect(readRunState(agenticStateAnswer)).toBeNull()
   })
 })

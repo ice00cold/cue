@@ -31,7 +31,16 @@ export const NO_TASK_ASK = 'What can you help me with? Ask me what I want to do 
 
 export const MEMORY_LINE = 'Save the About me lines to your memory of me.'
 
-const OS_NAMES: Record<string, string> = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' }
+const OS_NAMES = new Map([
+  ['darwin', 'macOS'],
+  ['linux', 'Linux'],
+  ['win32', 'Windows']
+])
+
+/** "Windows 11", "macOS 26": the OS family's name and its release. */
+export function osLabel(family: null | string | undefined, release: null | string | undefined): null | string {
+  return family ? [OS_NAMES.get(family) ?? family, release].filter(Boolean).join(' ') : null
+}
 
 /** "RTX Spark (NVIDIA N1X · Windows 11 · 128 GB RAM)", or `null` when the facts are missing. */
 export function machineLine(facts: Facts): null | string {
@@ -42,11 +51,10 @@ export function machineLine(facts: Facts): null | string {
   }
 
   const { machine } = summary
-  const os = machine.os_family ? [OS_NAMES[machine.os_family] ?? machine.os_family, machine.os_release] : []
 
   const detail = [
     machine.cpu_model,
-    os.filter(Boolean).join(' '),
+    osLabel(machine.os_family, machine.os_release),
     summary.has_nvidia_gpu && !summary.is_spark ? 'NVIDIA GPU' : null,
     machine.ram_gb ? `${machine.ram_gb} GB RAM` : null
   ].filter(Boolean)
@@ -124,7 +132,7 @@ export interface HandoffDeps {
   /** `session.create` in the default profile, then `prompt.submit`; answers the runtime session id. */
   openDefaultChat: (text: string) => Promise<string>
   /** Re-run the overlay's readiness round so it lands on the right screen after the questionnaire. */
-  refreshReadiness: () => Promise<unknown>
+  refreshReadiness: () => Promise<void>
   /** The built-in quick tour; resolves once it is closed. */
   runTour: () => Promise<void>
   /** Local-model quickstart for the default profile. */

@@ -8,6 +8,7 @@ import type { OnboardingRunStateResult } from '@hermes/shared'
 import { atom } from 'nanostores'
 
 import { withTimeout } from '@/lib/with-timeout'
+import type { FreeTierRequester } from '@/store/free-tier'
 import { markQuestionnaireDecided, QUESTIONNAIRE_DECIDE_DEADLINE_MS } from '@/store/onboarding-presence'
 
 import { openQuestionnaire } from './store'
@@ -15,23 +16,28 @@ import { openQuestionnaire } from './store'
 /** The questionnaire can run here (free tier on, local primary backend): Settings shows Run setup again. */
 export const $questionnaireAvailable = atom(false)
 
-export type OnboardingRequester = <T>(method: string, params?: Record<string, unknown>) => Promise<T>
+/** The gateway requester the free-tier store already takes; the questionnaire shares its reads. */
+export type OnboardingRequester = FreeTierRequester
 
-export function readRunState(value: unknown): null | OnboardingRunStateResult {
-  if (typeof value !== 'object' || value === null) {
-    return null
-  }
+const isBool = (value: boolean | null | string | undefined): value is boolean => value === true || value === false
 
-  // SAFETY: a non-null object; both fields are type-checked below before use.
-  const { eligible, run } = value as Partial<Record<keyof OnboardingRunStateResult, unknown>>
+/**
+ * The new `{run, eligible}` shape, or `null`. An older backend answers `{eligible, intro, …}` under
+ * the same name (no `run`), or something else entirely; neither is due.
+ */
+type RunStateAnswer = null | Partial<Record<keyof OnboardingRunStateResult, boolean | null | string>> | undefined
 
-  return typeof run === 'boolean' && typeof eligible === 'boolean' ? { eligible, run } : null
+export function readRunState(value: RunStateAnswer): null | OnboardingRunStateResult {
+  const run = value?.run
+  const eligible = value?.eligible
+
+  return isBool(run) && isBool(eligible) ? { eligible, run } : null
 }
 
 async function readDue(request: OnboardingRequester): Promise<null | OnboardingRunStateResult> {
   try {
     return readRunState(
-      await withTimeout(request<unknown>('onboarding.state'), QUESTIONNAIRE_DECIDE_DEADLINE_MS, 'onboarding.state timed out')
+      await withTimeout(request<RunStateAnswer>('onboarding.state'), QUESTIONNAIRE_DECIDE_DEADLINE_MS, 'onboarding.state timed out')
     )
   } catch {
     return null

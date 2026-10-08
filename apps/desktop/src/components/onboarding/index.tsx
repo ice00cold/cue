@@ -367,7 +367,7 @@ export function DesktopOnboardingOverlay({
     return (
       <OverlaySurface statusbarVisible={statusbarVisible}>
         <div className="relative w-full max-w-[45rem] overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) p-5 shadow-nous">
-          <QuestionnaireScreen refreshReadiness={() => refreshOnboarding(ctx)} />
+          <QuestionnaireScreen refreshReadiness={() => refreshOnboarding(ctx).then(() => undefined)} />
         </div>
       </OverlaySurface>
     )

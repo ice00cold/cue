@@ -12,6 +12,7 @@ import { useTheme } from '@/themes/context'
 
 import { type AccentTarget, commitAccent, commitLayout, previewAccent, QUESTIONNAIRE_PROFILE } from '../apply'
 import { pluginOptions, stepOptions, STEPS } from '../flow'
+import { osLabel } from '../handoff'
 import { $questionnaire, confirmStep, holdPreview, setAnswers, skipStep } from '../store'
 import { Chip } from '../visuals/chip'
 import { AnswerMark } from '../visuals/motion'
@@ -80,10 +81,15 @@ export function AccentStep() {
   )
 }
 
-const LAYOUT_COPY = {
-  'sidebar-left': { detail: 'basicDetail', name: 'basic' },
-  'terminal-deck': { detail: 'eliteDetail', name: 'elite' }
-} as const
+interface LayoutCopy {
+  detail: 'basicDetail' | 'eliteDetail'
+  name: 'basic' | 'elite'
+}
+
+const LAYOUT_COPY = new Map<string, LayoutCopy>([
+  ['sidebar-left', { detail: 'basicDetail', name: 'basic' }],
+  ['terminal-deck', { detail: 'eliteDetail', name: 'elite' }]
+])
 
 export function LayoutStep() {
   const { t } = useI18n()
@@ -107,7 +113,7 @@ export function LayoutStep() {
     >
       <div className="grid grid-cols-2 gap-4 p-1">
         {LAYOUTS.map(layout => {
-          const keys = LAYOUT_COPY[layout.id as keyof typeof LAYOUT_COPY]
+          const keys = LAYOUT_COPY.get(layout.id)
           const active = answers.layout === layout.id
 
           return (
@@ -128,8 +134,6 @@ export function LayoutStep() {
   )
 }
 
-const OS_NAMES: Record<string, string> = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' }
-
 function MachineSpec() {
   const { t } = useI18n()
   const machine = useStore($questionnaire).facts.machine
@@ -145,7 +149,7 @@ function MachineSpec() {
     [copy.chip, info.cpu_model],
     [copy.gpu, machine.has_nvidia_gpu ? 'NVIDIA' : null],
     [copy.memory, info.ram_gb ? copy.memoryValue(info.ram_gb) : null],
-    [copy.os, info.os_family ? [OS_NAMES[info.os_family] ?? info.os_family, info.os_release].filter(Boolean).join(' ') : null]
+    [copy.os, osLabel(info.os_family, info.os_release)]
   ]
 
   return (

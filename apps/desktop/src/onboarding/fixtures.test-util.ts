@@ -4,15 +4,19 @@ import type { Answers, Facts } from './flow'
 
 type AppState = CatalogPluginPresence['state']
 
-const TITLES: Record<string, string> = { blender: 'Blender', 'nvidia-app': 'NVIDIA App', 'nvidia-broadcast': 'NVIDIA Broadcast' }
+const TITLES = new Map([
+  ['blender', 'Blender'],
+  ['nvidia-app', 'NVIDIA App'],
+  ['nvidia-broadcast', 'NVIDIA Broadcast']
+])
 
 export function presence(apps: Record<string, AppState>): CatalogPluginPresence[] {
   return Object.entries(apps).map(([name, state]) => ({
-    disclosure: `${TITLES[name]} disclosure.`,
+    disclosure: `${TITLES.get(name)} disclosure.`,
     name,
     sentence: '',
     state,
-    title: TITLES[name]
+    title: TITLES.get(name) ?? name
   }))
 }
 
@@ -39,7 +43,7 @@ const CONNECTORS: Facts['connectors'] = {
 }
 
 /** Four machines, presence as the backend answers it (wrong-OS names already dropped). */
-export const FIXTURES: Record<'mac' | 'spark' | 'windowsLaptop' | 'windowsRtx', Facts> = {
+export const FIXTURES = {
   spark: {
     connectors: CONNECTORS,
     local: { id: 'qwen3.8-27b', name: 'Qwen3.8 27B' },
@@ -75,6 +79,6 @@ export const FIXTURES: Record<'mac' | 'spark' | 'windowsLaptop' | 'windowsRtx', 
     }),
     plugins: presence({ blender: 'present' })
   }
-}
+} satisfies Record<string, Facts>
 
 export const answers = (patch: Partial<Answers> = {}): Answers => ({ apps: [], connectors: [], skipped: [], ...patch })
