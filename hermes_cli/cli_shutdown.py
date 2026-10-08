@@ -272,6 +272,10 @@ def _flush_one_shot_session_store(cli) -> None:
         db.flush_token_counts()
     except Exception:
         logger.debug("one-shot token-count drain failed", exc_info=True)
+    if getattr(cli, "_on_main_thread", False):
+        # One main thread: a one-shot query appends to the persistent conversation and leaves
+        # it open — the gateway (or the next CLI run) continues the same thread.
+        return
     try:
         db.end_session(session_id, "cli_close")
     except Exception:

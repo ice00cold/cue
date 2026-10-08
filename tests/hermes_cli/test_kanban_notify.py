@@ -749,10 +749,10 @@ async def test_gateway_autosubscribe_roundtrips_user_id_alt_for_session_key(
     replayed_key = build_session_key(
         replayed, thread_sessions_per_user=thread_sessions_per_user
     )
-    assert original_key == replayed_key
-    # Regression guard: the canonical alt id — not the raw user_id — is what
-    # keys the participant. Proves the alt id actually reached the key.
-    assert "union-id" in replayed_key
+    assert original_key == replayed_key == "agent:main:main-thread"
+    # Cue: the ONE main-thread key carries no participant slot, so a dropped alt id can no
+    # longer fork the wake into a parallel conversation. The alt id still matters for delivery
+    # authz — the row round-trips it (asserted above).
     assert "open-id" not in replayed_key
 
 @pytest.mark.asyncio

@@ -93,14 +93,6 @@ class CLILoopsMixin:
     def _cmd_clear(self, cmd_original: str):
         from cli import ChatConsole, _build_compact_banner, _clear_output_history, _cprint, get_tool_definitions
         from hermes_cli.banner import build_welcome_banner
-        if self._confirm_destructive_slash(
-            "clear",
-            "This clears the screen and starts a new session.\n"
-            "The current conversation history will be discarded.",
-            cmd_original=cmd_original,
-        ) is None:
-            return True  # confirmation cancelled — command handled, keep REPL alive
-        self.new_session(silent=True)
         _clear_output_history()
         if not self._app:
             self.console.clear()
@@ -189,18 +181,11 @@ class CLILoopsMixin:
                 _cprint(f"  {t('cli.title.queued', title=new_title)}")
 
     def _cmd_new(self, cmd_original: str):
-        # Strip inline-skip tokens (now/--yes/-y) before deriving the title so
-        # "/new now My Session" yields title="My Session". See _split_destructive_skip.
+        """/new rotates the topic: archive + compress the finished topic into durable artifacts,
+        keep going in the SAME session. `/new <title>` names the topic artifact."""
         _new_args, _ = self._split_destructive_skip(cmd_original)
         title = _new_args.strip() or None
-        if self._confirm_destructive_slash(
-            "new",
-            "This starts a fresh session.\n"
-            "The current conversation history will be discarded.",
-            cmd_original=cmd_original,
-        ) is None:
-            return True  # confirmation cancelled — command handled, keep REPL alive
-        self.new_session(title=title)
+        self._rotate_topic(title)
 
     def _record_model_friction(self, signal: str, turns: int = 1) -> None:
         # The TUI slash worker's shadow CLI has no metrics surface: tui_gateway counts what it executes.

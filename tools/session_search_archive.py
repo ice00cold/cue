@@ -82,7 +82,7 @@ def search_transcript_archive(
     hits: List[Dict[str, Any]] = []
     for path in _transcript_files(_archive_home(home)):
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
         except OSError as exc:
             logger.debug("archive transcript unreadable: %s (%s)", path, exc)
             continue
@@ -118,7 +118,7 @@ def search_topic_artifacts(
     hits: List[Dict[str, Any]] = []
     for path in _topic_files(_archive_home(home)):
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
         except OSError as exc:
             logger.debug("topic artifact unreadable: %s (%s)", path, exc)
             continue

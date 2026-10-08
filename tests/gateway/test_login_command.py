@@ -394,13 +394,13 @@ async def test_durable_clear_fails_twice_keeps_override_and_warns(monkeypatch, t
     rebuilt = _runner(monkeypatch)
     rebuilt.session_store = reloaded
     assert runner._session_model_overrides[key] == override
-        assert reloaded.get_model_override(session_key) == override
-        rebuilt._rehydrate_session_model_override(session_key)
-        assert rebuilt._session_model_overrides[session_key]["model"] == override["model"]
-        assert any(
-            record.levelno == logging.WARNING and session_key in record.getMessage()
-            and "failed to clear free-tier override" in record.getMessage()
-            for record in caplog.records)
+    assert reloaded.get_model_override(key) == override
+    rebuilt._rehydrate_session_model_override(key)
+    assert rebuilt._session_model_overrides[key]["model"] == override["model"]
+    assert any(
+        record.levelno == logging.WARNING and key in record.getMessage()
+        and "failed to clear free-tier override" in record.getMessage()
+        for record in caplog.records)
     runner._evict_cached_agent.assert_not_called()
     runner._deliver_platform_notice.assert_awaited_once_with(
         attempt.source,

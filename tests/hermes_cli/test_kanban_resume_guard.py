@@ -1,8 +1,8 @@
 """Kanban worker transcripts must not resume as ordinary write-capable sessions (#68779).
 
 Behaviour tests for the centralized guard (`hermes_cli/kanban_resume_guard.py`) and the three
-CLI resume surfaces it protects: startup `--resume` (`_preload_resumed_session`), mid-chat
-`/resume`, and the quiet one-shot resume (`oneshot._load_resume_target`). The gateway surface
+CLI resume surfaces it protects: startup `--resume` (`_preload_resumed_session`) and the
+quiet one-shot resume (`oneshot._load_resume_target`). The gateway surface
 is covered in `tests/tui_gateway/test_kanban_resume_guard.py`.
 """
 
@@ -154,27 +154,6 @@ def test_startup_resume_ordinary_session_still_works(tmp_path):
     assert cli._preload_resumed_session() is True
     assert len(cli.conversation_history) == 2
     assert cli.session_id == "chat-1"
-
-
-# ── mid-chat /resume ─────────────────────────────────────────────────
-
-def test_midchat_resume_refuses_kanban_target(tmp_path):
-    db = _db(tmp_path, source="cli", session_id="chat-1")
-    db.create_session("worker-1", "kanban")
-    db.append_message("worker-1", "user", "task work")
-    cli = _make_cli(resume=None)
-    cli._session_db = db
-    cli.session_id = "chat-1"
-    cli.conversation_history = [{"role": "user", "content": "hi"}]
-    printed = []
-    with patch("cli._cprint", lambda line: printed.append(line)):
-        cli._handle_resume_command("/resume worker-1")
-
-    joined = "\n".join(str(p) for p in printed)
-    assert "Kanban" in joined
-    # The chat stays on its own session — no switch, no history swap.
-    assert cli.session_id == "chat-1"
-    assert cli.conversation_history == [{"role": "user", "content": "hi"}]
 
 
 # ── quiet one-shot resume ────────────────────────────────────────────

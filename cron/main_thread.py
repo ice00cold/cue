@@ -41,7 +41,7 @@ def resolve_main_thread_session(session_db) -> Optional[str]:
         # isinstance guard: a test double's finder returns a MagicMock, never a row.
         return str(row.get("id")) or None if isinstance(row, dict) else None
     except Exception as exc:
-        logger.debug("main-thread session lookup failed for %s: %s", key, exc)
+        logger.debug("main-thread session lookup failed for %s: %s", key, exc, exc_info=True)
         return None
 
 
@@ -57,7 +57,7 @@ def load_main_thread_history(session_db, session_id: str):
         return session_db.get_messages_as_conversation(
             session_id, repair_alternation=True, include_row_ids=True)
     except Exception as exc:
-        logger.warning("main-thread history load failed for %s: %s", session_id, exc)
+        logger.warning("main-thread history load failed for %s: %s", session_id, exc, exc_info=True)
         return None
 
 
@@ -77,5 +77,5 @@ def ensure_main_thread_session(session_db, now) -> Tuple[str, bool]:
     except Exception as exc:
         # A failed CREATE still returns the minted id: the agent persists under it, and the row
         # appears on the next append — better than silently falling back to a throwaway id.
-        logger.warning("main-thread session row create failed for %s: %s", key, exc)
+        logger.warning("main-thread session row create failed for %s: %s", key, exc, exc_info=True)
     return session_id, True

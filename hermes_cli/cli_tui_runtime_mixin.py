@@ -96,9 +96,6 @@ class CLITuiRuntimeMixin:
                 _cprint("  " + t("cli.tui.detected_file", name=_drop_path.name))
                 user_input = f"[User attached file: {_drop_path}]" + (f"\n{_remainder}" if _remainder else "")
         elif isinstance(user_input, str):
-            # A bare number right after a bare `/resume` selects that session (never sent to the agent).
-            if self._pending_resume_sessions and self._consume_pending_resume_selection(user_input):
-                return
             if not is_seeded_query:
                 if self.handle_bang_shell(user_input):
                     return
@@ -466,15 +463,22 @@ class CLITuiRuntimeMixin:
 
         if self._session_db and self.agent:
             try:
-                self._session_db.end_session(self.agent.session_id, "cli_close")
+                # One main thread: the conversation outlives this CLI process — an interactive
+                # close never ends the session row (the gateway's stale-route heal would rotate
+                # the thread's id on the next message). Explicit /exit --delete still deletes.
+                if not getattr(self, "_on_main_thread", False):
+                    self._session_db.end_session(self.agent.session_id, "cli_close")
             except (Exception, KeyboardInterrupt) as e:
                 logger.debug("Could not close session in DB: %s", e)
             if not self._delete_session_on_exit:
                 # Drop the empty row of a start-and-quit session so /resume stays clean.
-                try:
-                    self._discard_session_if_empty(self.agent.session_id)
-                except (Exception, KeyboardInterrupt) as e:
-                    logger.debug("Could not prune empty session: %s", e)
+                if getattr(self, "_on_main_thread", False):
+                    pass  # the main thread is never "empty residue" — it is the conversation
+                else:
+                    try:
+                        self._discard_session_if_empty(self.agent.session_id)
+                    except (Exception, KeyboardInterrupt) as e:
+                        logger.debug("Could not prune empty session: %s", e)
             else:
                 # /exit --delete: remove transcripts + SQLite history.
                 try:

@@ -10,7 +10,6 @@ from hermes_state import SessionDB
 from gateway.config import Platform, GatewayConfig, PlatformConfig
 from gateway.platforms.event import MessageEvent
 from gateway.session import (
-    SessionEntry,
     SessionSource,
     SessionStore,
     build_session_context,

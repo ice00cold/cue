@@ -44,6 +44,7 @@ def _main_thread_session_id() -> Optional[str]:
         try:
             data = json.loads(sessions_index.read_text(encoding="utf-8-sig"))
         except Exception:
+            logger.debug("main-thread routing index unreadable", exc_info=True)
             data = None
         entry = (data or {}).get(key) if isinstance(data, dict) else None
         session_id = entry.get("session_id") if isinstance(entry, dict) else None
@@ -59,7 +60,7 @@ def _main_thread_session_id() -> Optional[str]:
         finally:
             release_or_close(db)
     except Exception as e:
-        logger.debug("Mirror: main-thread session lookup failed: %s", e)
+        logger.debug("Mirror: main-thread session lookup failed: %s", e, exc_info=True)
         return None
 
 

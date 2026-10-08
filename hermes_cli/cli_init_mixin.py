@@ -312,12 +312,25 @@ class CLIInitMixin:
         self._init_session_store()
         self._pending_title: Optional[str] = None
         self._resumed = bool(resume)
-        self.session_id = resume or new_session_id(self.session_start)
+        # One main thread: a plain launch attaches the profile's persistent conversation.
+        self.session_id, self._on_main_thread = self._resolve_startup_session_id(resume)
         getattr(self, "_write_terminal_breadcrumb", lambda: None)()
 
         self._history_file = _hermes_home / ".hermes_history"
         self._last_invalidate: float | None = None  # throttles UI repaints (None = never; monotonic epoch is arbitrary)
         self._init_ui_state()
+
+    def _resolve_startup_session_id(self, resume) -> tuple[str, bool]:
+        """``(session_id, on_main_thread)``. An explicit --resume/<target> keeps its own session
+        (kanban workers, bot-chat lanes, imports). Otherwise the CLI attaches the profile's ONE
+        main thread — the same conversation the gateway serves."""
+        if resume:
+            return resume, False
+        from hermes_cli.main_thread import resolve_main_thread_session
+        session_id = resolve_main_thread_session(self._session_db)
+        if session_id:
+            return session_id, True
+        return new_session_id(self.session_start), False
 
     def _init_session_store(self):
         """Open the session store early (so /title works before the first message) + opportunistic maintenance."""
@@ -385,7 +398,6 @@ class CLIInitMixin:
         except Exception:
             self._composer_placeholder = ""
         self._command_palette_state = self._secret_state = None
-        self._pending_resume_sessions = None  # armed by a bare `/resume`; the next bare number selects
         self._pending_agent_seed = None  # one-shot seed from a slash handler
         self._secret_deadline = 0
         self._tool_start_time: float = 0.0
