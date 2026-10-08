@@ -44,8 +44,7 @@ def _target(origin, *, deliver_to=None, adapters=None, loop=None):
     deliver_to = deliver_to or {"platform": origin["platform"], "chat_id": origin["chat_id"]}
     t = sd._prepare_target_delivery(
         {"id": "job-1", "origin": origin}, deliver_to, adapters=adapters or {Platform.RELAY: _Relay()},
-        loop=loop, config=GatewayConfig(), notify_delivery=True, mirror_enabled=False, mirror_text="",
-        delivery_errors=[])
+        loop=loop, config=GatewayConfig(), notify_delivery=True, delivery_errors=[])
     assert t is not None
     return t
 
@@ -71,7 +70,6 @@ def test_no_user_id_off_the_relay_or_for_fan_out_targets(native, deliver_to):
 
 def test_cold_adapter_send_reaches_the_transport_with_user_id(monkeypatch):
     """End to end through the live lane: what the connector sees on the wire for a cold-cache relay DM."""
-    monkeypatch.setattr(sd, "_maybe_mirror_cron_delivery", lambda *a, **k: None)
     loop = asyncio.new_event_loop()
     th = threading.Thread(target=loop.run_forever, daemon=True)
     th.start()

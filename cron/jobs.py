@@ -1832,7 +1832,6 @@ def create_job(
     enabled_toolsets: Optional[List[str]] = None,
     workdir: Optional[str] = None,
     no_agent: bool = False,
-    attach_to_session: Optional[bool] = None,
     monitor_script: Optional[str] = None,
     monitor_url: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
@@ -1873,7 +1872,6 @@ def create_job(
     raw = locals()
     f = {key: norm(raw[key]) for key, norm in _CREATE_FIELD_NORMALIZERS.items()}
     normalized_skills = _normalize_skill_list(skill, skills)
-    normalized_attach = attach_to_session if isinstance(attach_to_session, bool) else None
     normalized_reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
 
     _validate_job_mode_invariants(f["monitor_script"], f["monitor_url"], f["no_agent"], f["script"])
@@ -1934,10 +1932,9 @@ def create_job(
         "workdir": f["workdir"],
     }
     # Optional keys are persisted only when explicitly set: an absent key falls back to global
-    # config (attach/reasoning) or to ``deliver`` (failure_deliver), byte-identical to pre-feature
-    # jobs.
+    # config (reasoning) or to ``deliver`` (failure_deliver), byte-identical to pre-feature jobs.
     for key, value in (
-        ("attach_to_session", normalized_attach), ("reasoning_effort", normalized_reasoning_effort),
+        ("reasoning_effort", normalized_reasoning_effort),
         ("failure_deliver", f["failure_deliver"]), ("interpreter", f["interpreter"]),
     ):
         if value is not None:

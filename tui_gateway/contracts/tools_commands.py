@@ -468,7 +468,6 @@ class CronJobRow(_Open):
     enabled_toolsets: list[str] | None = None
     continuity: bool | None = None
     context_from: list[str] | None = None
-    attach_to_session: bool | None = None
 
 
 class CronRemovedJob(Result):

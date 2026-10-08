@@ -36,10 +36,9 @@ def _main_thread_session_id() -> Optional[str]:
     """The active profile's main-thread session id: the gateway routing index (``sessions.json``)
     first — it is fresh through unpublished rotations — then the durable state.db row under the
     main key."""
-    from gateway.session import main_thread_session_key
-    from hermes_cli.profiles import current_profile_name
+    from gateway.session import active_profile_main_thread_session_key
 
-    key = main_thread_session_key(current_profile_name() or None)
+    key = active_profile_main_thread_session_key()
     sessions_index = _resolve_sessions_index()
     if sessions_index.exists():
         try:

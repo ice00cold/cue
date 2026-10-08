@@ -704,6 +704,19 @@ def is_main_thread_session_key(session_key: str) -> bool:
     return len(parts) == 3 and parts[0] == "agent" and parts[2] == _MAIN_THREAD_SEGMENT
 
 
+def active_profile_main_thread_session_key() -> str:
+    """The main-thread key for the profile the CURRENT scope runs under (cron tick, mirror).
+
+    Namespace parity with the gateway's own key derivation: a named profile home
+    (``<profiles>/<name>``) keys under its namespace; every other home (default profile OR any
+    custom ``HERMES_HOME``) keys under the DEFAULT namespace — exactly what
+    ``build_session_key(source)`` yields for a source with no routing identity."""
+    from hermes_cli.profiles import get_active_profile_name
+
+    name = get_active_profile_name()
+    return main_thread_session_key(None if not name or name in ("default", "custom") else name)
+
+
 class _SessionFlight:
     def __init__(self) -> None:
         self.event = threading.Event()

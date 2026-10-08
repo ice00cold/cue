@@ -1846,14 +1846,6 @@ DEFAULT_CONFIG = {
             # silent, no-push deliveries.
             "notify": True,
         },
-        # Make cron deliveries CONTINUABLE (user can reply to a brief with it in context). False
-        # keeps deliveries isolated to the job's session; per-job `attach_to_session` overrides.
-        # Thread-capable platforms (Telegram topics, Discord/Slack threads) get a seeded thread per
-        # job via create_handoff_thread; DM-only platforms mirror the brief into the target DM
-        # session. Appended at a turn boundary via mirror_to_session, cached system prompt
-        # untouched. User-written bare platforms address home conversations, unlike `all`
-        # broadcast expansions, which do not gain mirror eligibility.
-        "mirror_delivery": False,
         # Max due jobs run in parallel per tick. None/0 = unbounded (thread count only); 1 = serial.
         # Env override: HERMES_CRON_MAX_PARALLEL.
         "max_parallel_jobs": None,

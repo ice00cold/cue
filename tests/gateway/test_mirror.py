@@ -1,4 +1,4 @@
-"""Tests for gateway/mirror.py — session mirroring."""
+"""Tests for gateway/mirror.py — delivery mirroring into the one main thread."""
 
 import importlib
 import json
@@ -7,8 +7,10 @@ from unittest.mock import patch, MagicMock
 import gateway.mirror as mirror_mod
 from gateway.mirror import (
     mirror_to_session,
-    _find_session_id,
+    _main_thread_session_id,
 )
+
+MAIN_KEY = "agent:main:main-thread"
 
 
 def _setup_sessions(tmp_path, sessions_data):
@@ -20,126 +22,79 @@ def _setup_sessions(tmp_path, sessions_data):
     return sessions_dir, index_file
 
 
-class TestFindSessionId:
-    def test_finds_matching_session(self, tmp_path):
+class TestMainThreadSessionId:
+    def test_resolves_the_main_thread_entry_from_the_routing_index(self, tmp_path):
         sessions_dir, index_file = _setup_sessions(tmp_path, {
-            "agent:main:telegram:dm": {
-                "session_id": "sess_abc",
-                "origin": {"platform": "telegram", "chat_id": "12345"},
-                "updated_at": "2026-01-01T00:00:00",
-            }
+            MAIN_KEY: {"session_id": "sess_main", "updated_at": "2026-01-01T00:00:00"},
         })
 
         with patch.object(mirror_mod, "_SESSIONS_DIR", sessions_dir), \
              patch.object(mirror_mod, "_SESSIONS_INDEX", index_file):
-            result = _find_session_id("telegram", "12345")
+            assert _main_thread_session_id() == "sess_main"
 
-        assert result == "sess_abc"
-
-    def test_returns_most_recent(self, tmp_path):
+    def test_no_main_entry_and_no_durable_row_means_none(self, tmp_path):
         sessions_dir, index_file = _setup_sessions(tmp_path, {
-            "old": {
-                "session_id": "sess_old",
-                "origin": {"platform": "telegram", "chat_id": "12345"},
-                "updated_at": "2026-01-01T00:00:00",
-            },
-            "new": {
-                "session_id": "sess_new",
-                "origin": {"platform": "telegram", "chat_id": "12345"},
-                "updated_at": "2026-02-01T00:00:00",
-            },
+            "agent:main:telegram:dm:123": {"session_id": "sess_legacy"},  # pre-fork row
         })
 
         with patch.object(mirror_mod, "_SESSIONS_DIR", sessions_dir), \
-             patch.object(mirror_mod, "_SESSIONS_INDEX", index_file):
-            result = _find_session_id("telegram", "12345")
+             patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
+             patch("hermes_state_registry.acquire", side_effect=OSError("no store")):
+            assert _main_thread_session_id() is None
 
-        assert result == "sess_new"
-
-    def test_thread_id_disambiguates_same_chat(self, tmp_path):
-        sessions_dir, index_file = _setup_sessions(tmp_path, {
-            "topic_a": {
-                "session_id": "sess_topic_a",
-                "origin": {"platform": "telegram", "chat_id": "-1001", "thread_id": "10"},
-                "updated_at": "2026-01-01T00:00:00",
-            },
-            "topic_b": {
-                "session_id": "sess_topic_b",
-                "origin": {"platform": "telegram", "chat_id": "-1001", "thread_id": "11"},
-                "updated_at": "2026-02-01T00:00:00",
-            },
-        })
+    def test_durable_row_answers_when_the_index_is_empty(self, tmp_path):
+        sessions_dir, index_file = _setup_sessions(tmp_path, {})
+        db = MagicMock()
+        db.find_latest_gateway_session_for_main_key.return_value = {"id": "sess_durable"}
 
         with patch.object(mirror_mod, "_SESSIONS_DIR", sessions_dir), \
-             patch.object(mirror_mod, "_SESSIONS_INDEX", index_file):
-            result = _find_session_id("telegram", "-1001", thread_id="10")
-
-        assert result == "sess_topic_a"
+             patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
+             patch("hermes_state_registry.acquire", return_value=db), \
+             patch("hermes_state_registry.release_or_close"):
+            assert _main_thread_session_id() == "sess_durable"
 
 
 class TestMirrorToSession:
-
-
-    def test_successful_mirror_uses_user_id_for_group_session(self, tmp_path):
+    def test_mirror_appends_to_the_resolved_main_thread(self, tmp_path):
         sessions_dir, index_file = _setup_sessions(tmp_path, {
-            "alice": {
-                "session_id": "sess_alice",
-                "origin": {"platform": "telegram", "chat_id": "-1001", "user_id": "alice"},
-                "updated_at": "2026-01-01T00:00:00",
-            },
-            "bob": {
-                "session_id": "sess_bob",
-                "origin": {"platform": "telegram", "chat_id": "-1001", "user_id": "bob"},
-                "updated_at": "2026-02-01T00:00:00",
-            },
+            MAIN_KEY: {"session_id": "sess_main", "updated_at": "2026-01-01T00:00:00"},
         })
 
         with patch.object(mirror_mod, "_SESSIONS_DIR", sessions_dir), \
              patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
              patch("gateway.mirror._append_to_sqlite") as mock_sqlite:
-            result = mirror_to_session(
-                "telegram",
-                "-1001",
-                "Hello group!",
-                source_label="cli",
-                user_id="alice",
-            )
+            result = mirror_to_session("Hello group!", source_label="cli")
 
         assert result is True
         mock_sqlite.assert_called_once()
-        assert mock_sqlite.call_args[0][0] == "sess_alice"
+        assert mock_sqlite.call_args[0][0] == "sess_main"
 
     def test_no_matching_session(self, tmp_path):
         sessions_dir, index_file = _setup_sessions(tmp_path, {})
 
         with patch.object(mirror_mod, "_SESSIONS_DIR", sessions_dir), \
-             patch.object(mirror_mod, "_SESSIONS_INDEX", index_file):
-            result = mirror_to_session("telegram", "99999", "Hello!")
+             patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
+             patch("hermes_state_registry.acquire", side_effect=OSError("no store")):
+            result = mirror_to_session("Hello!")
 
         assert result is False
-
 
     def test_failed_sqlite_write_reports_false(self, tmp_path):
         """A mirror whose transcript write raises must not report success (#10130)."""
         sessions_dir, index_file = _setup_sessions(tmp_path, {
-            "dm": {
-                "session_id": "sess_dm",
-                "origin": {"platform": "telegram", "chat_id": "123"},
-                "updated_at": "2026-01-01T00:00:00",
-            },
+            MAIN_KEY: {"session_id": "sess_main", "updated_at": "2026-01-01T00:00:00"},
         })
         broken_db = MagicMock()
-        broken_db.find_session_by_origin.return_value = None  # resolve via sessions.json
         broken_db.append_message.side_effect = OSError("disk full")
 
         with patch.object(mirror_mod, "_SESSIONS_DIR", sessions_dir), \
              patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
              patch("hermes_state_registry.acquire", return_value=broken_db), \
              patch("hermes_state_registry.release_or_close"):
-            result = mirror_to_session("telegram", "123", "Hello!")
+            result = mirror_to_session("Hello!")
 
         assert result is False
-        broken_db.append_message.assert_called_once()
+        assert broken_db.append_message.called
 
 
 class TestAppendToSqlite:
@@ -170,11 +125,7 @@ class TestSessionsIndexProfileScoping:
         d = home / "sessions"
         d.mkdir(parents=True, exist_ok=True)
         (d / "sessions.json").write_text(json.dumps({
-            "agent:main:telegram:dm": {
-                "session_id": session_id,
-                "origin": {"platform": "telegram", "chat_id": "12345"},
-                "updated_at": "2026-01-01T00:00:00",
-            }
+            MAIN_KEY: {"session_id": session_id, "updated_at": "2026-01-01T00:00:00"},
         }), encoding="utf-8")
 
     def test_fallback_follows_active_profile_home(self, tmp_path, monkeypatch):
@@ -194,7 +145,7 @@ class TestSessionsIndexProfileScoping:
         try:
             # A request for a different profile is now served by the same process.
             monkeypatch.setenv("HERMES_HOME", str(active_home))
-            assert mirror_mod._find_session_id("telegram", "12345") == "sess_active"
+            assert mirror_mod._main_thread_session_id() == "sess_active"
         finally:
             monkeypatch.undo()
             importlib.reload(mirror_mod)
@@ -207,4 +158,4 @@ class TestSessionsIndexProfileScoping:
         monkeypatch.setattr(mirror_mod, "_SESSIONS_INDEX", patched / "sessions" / "sessions.json")
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "elsewhere"))
 
-        assert mirror_mod._find_session_id("telegram", "12345") == "sess_patched"
+        assert mirror_mod._main_thread_session_id() == "sess_patched"

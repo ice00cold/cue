@@ -691,7 +691,7 @@ def _action_create(a: Dict[str, Any]) -> str:
             # [] is an explicit zero-tool allowlist, not a clear back to the unrestricted default (#82010).
             enabled_toolsets=a["enabled_toolsets"] if a["enabled_toolsets"] is not None else None,
             workdir=_normalize_optional_job_value(a["workdir"]),
-            no_agent=_no_agent, attach_to_session=a["attach_to_session"],
+            no_agent=_no_agent,
             monitor_script=_normalize_optional_job_value(a["monitor_script"]),
             monitor_url=_normalize_optional_job_value(a["monitor_url"]),
             # CLI-only lane: absent from CRONJOB_SCHEMA and the model dispatch (models don't pick models).
@@ -902,12 +902,10 @@ def _update_context_from(job: Dict[str, Any], a: Dict[str, Any], updates: Dict[s
 
 
 def _update_run_fields(job: Dict[str, Any], a: Dict[str, Any], updates: Dict[str, Any]) -> Optional[str]:
-    """enabled_toolsets / attach_to_session / workdir / no_agent / repeat / schedule."""
+    """enabled_toolsets / workdir / no_agent / repeat / schedule."""
     if a["enabled_toolsets"] is not None:
         # [] is an explicit zero-tool allowlist, not a clear back to the unrestricted default (#82010).
         updates["enabled_toolsets"] = a["enabled_toolsets"]
-    if a["attach_to_session"] is not None:
-        updates["attach_to_session"] = bool(a["attach_to_session"])
     if a["workdir"] is not None:
         # Empty string clears; otherwise update_job() validates/normalizes.
         updates["workdir"] = _normalize_optional_job_value(a["workdir"]) or None
@@ -1004,7 +1002,6 @@ def cronjob(
     enabled_toolsets: Optional[List[str]] = None,
     workdir: Optional[str] = None,
     no_agent: Optional[bool] = None,
-    attach_to_session: Optional[bool] = None,
     monitor_script: Optional[str] = None,
     monitor_url: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
@@ -1138,10 +1135,6 @@ Jobs run in a fresh session with no current-chat context, so prompts must be sel
                 "type": "string",
                 "description": "Optional absolute existing path to run the job from: injects that directory's AGENTS.md/context files and anchors terminal/file tools there. On update, '' clears."
             },
-            "attach_to_session": {
-                "type": "boolean",
-                "description": "True = the job's delivery is CONTINUABLE — the user can reply and the agent has the brief in context (threads on thread-capable platforms, mirrored into the DM elsewhere). Use for conversational recurring jobs (briefings); leave unset for fire-and-forget alerts. Scope: the job's own conversation only — the origin chat, the home-channel fallback when deliver='origin' captured no origin (script-created jobs), a user-written bare platform target (deliver='slack' — that platform's home channel), or the job's single explicit platform:chat target (this flag is the only way to attach an explicit target). Broadcast targets are never attached; no effect when deliver='local'."
-            },
         },
         "required": ["action"]
     }
@@ -1169,7 +1162,7 @@ def check_cronjob_requirements() -> bool:
 # different model. Programmatic callers of cronjob() itself retain the parameters.
 _HANDLER_FORWARDED_ARGS = (
     "job_id", "prompt", "schedule", "name", "repeat", "deliver", "failure_deliver", "skill", "skills", "reason",
-    "script", "context_from", "continuity", "enabled_toolsets", "workdir", "no_agent", "attach_to_session",
+    "script", "context_from", "continuity", "enabled_toolsets", "workdir", "no_agent",
     "paused_reason", "pinned")
 
 

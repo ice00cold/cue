@@ -1,10 +1,9 @@
-"""Cron sessions stamp the job's workdir on their session row (#108205).
+"""Cue: cron fires run in the profile's ONE persistent main thread (cron/main_thread.py).
 
-The sidebar groups sessions by cwd prefix; a cron run's row was left NULL even when the
-job ran inside a repo workdir (``_launch_cwd_for_session`` records no cwd for cron
-source), so every cron session filed under __no_project__. The scheduler — the owner of
-cron-session finalization — stamps the job's workdir before closing the session, with the
-same before-end_session ordering as the title write (#50536).
+The workdir stays per-FIRE scope (tools + context files for that run): the shared main-session
+row is never retitled, re-cwd'd or ended, and a cold store (no gateway has ever chatted) mints
+the main-thread row itself so every later fire — and the gateway's first message — lands in the
+same conversation.
 """
 
 from __future__ import annotations
@@ -48,11 +47,15 @@ def _run_job_with_real_db(job, db, tmp_path):
         return run_job(job)
 
 
-def _cron_rows(db):
-    return [dict(r) for r in db._read_all("SELECT * FROM sessions WHERE id LIKE 'cron_%'")]
+def _main_rows(db):
+    """Rows under the profile's main-thread key (Cue: fires run in the persistent main thread)."""
+    return [dict(r) for r in db._read_all(
+        "SELECT * FROM sessions WHERE session_key LIKE 'agent:%:main-thread'")]
 
 
-def test_run_job_stamps_workdir_on_cron_session_row(tmp_path):
+def test_run_job_never_stamps_workdir_on_the_persistent_main_row(tmp_path):
+    """A workdir is per-FIRE scope (tools + context files for that run); stamping it on the
+    shared main-session row would churn the whole conversation's cwd — it must stay unset."""
     db = SessionDB(db_path=tmp_path / "state.db")
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -62,23 +65,28 @@ def test_run_job_stamps_workdir_on_cron_session_row(tmp_path):
         success, _output, _final, error = _run_job_with_real_db(job, db, tmp_path)
 
         assert success is True, error
-        rows = _cron_rows(db)
+        rows = _main_rows(db)
         assert len(rows) == 1
-        assert rows[0]["cwd"] == str(repo)
+        assert rows[0]["cwd"] is None
     finally:
         db.close()
 
 
-def test_run_job_without_workdir_leaves_cron_session_cwd_null(tmp_path):
+def test_run_job_creates_the_main_thread_row_under_the_main_key(tmp_path):
+    """A fire on a cold store (no gateway has ever chatted) mints the main-thread row itself so
+    every later fire — and the gateway's first message — lands in the same conversation."""
+    from cron.main_thread import main_thread_session_key_for_current_profile
+
     db = SessionDB(db_path=tmp_path / "state.db")
-    job = {"id": "no-workdir-job", "name": "no workdir", "prompt": "hello"}
+    job = {"id": "cold-start-job", "name": "cold start", "prompt": "hello"}
 
     try:
         success, _output, _final, error = _run_job_with_real_db(job, db, tmp_path)
 
         assert success is True, error
-        rows = _cron_rows(db)
+        rows = _main_rows(db)
         assert len(rows) == 1
+        assert rows[0]["session_key"] == main_thread_session_key_for_current_profile()
         assert rows[0]["cwd"] is None
     finally:
         db.close()

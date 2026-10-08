@@ -36,55 +36,22 @@ def _slack_home(monkeypatch, chat_id="D0BJTDCSR7C", thread_id=None):
 SYNTH = "1755043010.123456"
 
 
-class TestOriginThreadStaleGuard:
-    def test_origin_thread_dropped_when_chat_is_home(self, monkeypatch):
-        """deliver=origin, slack origin chat == home chat: creation thread is stale."""
+class TestOriginThreadAlwaysFlat:
+    """Cue: origin is an egress address (platform + chat) — a stored thread_id is dropped at
+    read time whatever the platform, home config or staleness heuristic."""
+
+    def test_origin_thread_dropped_regardless_of_home_or_platform(self, monkeypatch):
         _slack_home(monkeypatch)
-        job = {"origin": {"platform": "slack", "chat_id": "D0BJTDCSR7C",
-                          "thread_id": SYNTH}}
-        target = _resolve_single_delivery_target(job, "origin")
-        assert target == {"platform": "slack", "chat_id": "D0BJTDCSR7C",
-                          "thread_id": None, "_resolved_from": "origin"}
+        for origin in (
+            {"platform": "slack", "chat_id": "D0BJTDCSR7C", "thread_id": SYNTH},
+            {"platform": "slack", "chat_id": "C0AGENERAL", "thread_id": "1755040000.000100"},
+            {"platform": "telegram", "chat_id": "-1003941067111", "thread_id": "2203"},
+        ):
+            target = _resolve_single_delivery_target({"origin": origin}, "origin")
+            assert target == {"platform": origin["platform"], "chat_id": origin["chat_id"],
+                              "_resolved_from": "origin"}
 
-    def test_origin_thread_kept_when_chat_not_home(self, monkeypatch):
-        """A non-home Slack origin thread may be a genuine working thread: keep it."""
-        _slack_home(monkeypatch, chat_id="D_OTHER_HOME")
-        job = {"origin": {"platform": "slack", "chat_id": "C0AGENERAL",
-                          "thread_id": "1755040000.000100"}}
-        target = _resolve_single_delivery_target(job, "origin")
-        assert target["thread_id"] == "1755040000.000100"
-
-    def test_home_thread_config_still_wins(self, monkeypatch):
-        """When the home target itself pins a thread, deliver there, not top-level."""
-        _slack_home(monkeypatch, thread_id="1755000000.000001")
-        job = {"origin": {"platform": "slack", "chat_id": "D0BJTDCSR7C",
-                          "thread_id": SYNTH}}
-        target = _resolve_single_delivery_target(job, "origin")
-        assert target["thread_id"] == "1755000000.000001"
-
-    def test_non_slack_origin_thread_untouched(self, monkeypatch):
-        """Telegram forum-topic origins replay their thread verbatim."""
-        _slack_home(monkeypatch)
-        job = {"origin": {"platform": "telegram", "chat_id": "-1003941067111",
-                          "thread_id": "2203"}}
-        target = _resolve_single_delivery_target(job, "origin")
-        assert target["thread_id"] == "2203"
-
-    def test_explicit_target_no_reattach_when_chat_is_home(self, monkeypatch):
-        """slack:<home_chat> must not inherit the stale creation thread."""
-        _slack_home(monkeypatch)
-        monkeypatch.setattr(
-            "tools.send_message_tool.prepare_send_message_platforms", lambda: None)
-        monkeypatch.setattr(
-            "tools.send_message_tool.resolve_send_target",
-            lambda platform, rest, **kw: (rest, None, None))
-        job = {"origin": {"platform": "slack", "chat_id": "D0BJTDCSR7C",
-                          "thread_id": SYNTH}}
-        target = _resolve_single_delivery_target(job, "slack:D0BJTDCSR7C")
-        assert target["thread_id"] is None
-
-    def test_explicit_target_reattach_kept_for_non_home_chat(self, monkeypatch):
-        """Origin-affinity re-attach is preserved for genuine non-home threads."""
+    def test_explicit_target_never_inherits_the_origin_thread(self, monkeypatch):
         _slack_home(monkeypatch, chat_id="D_OTHER_HOME")
         monkeypatch.setattr(
             "tools.send_message_tool.prepare_send_message_platforms", lambda: None)
@@ -94,7 +61,7 @@ class TestOriginThreadStaleGuard:
         job = {"origin": {"platform": "slack", "chat_id": "C0AGENERAL",
                           "thread_id": "1755040000.000100"}}
         target = _resolve_single_delivery_target(job, "slack:C0AGENERAL")
-        assert target["thread_id"] == "1755040000.000100"
+        assert target["thread_id"] is None
 
 
 def _gateway_config(connected_values):

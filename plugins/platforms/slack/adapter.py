@@ -1015,10 +1015,6 @@ class SlackAdapter(BasePlatformAdapter):
     splits_long_messages = True  # send() chunks via truncate_message(MAX_MESSAGE_LENGTH)
     # Slack rejects slash commands inside threads; "!" is rewritten to "/" for known commands.
     typed_command_prefix = "!"
-    # ``reply_in_thread: false`` gives both a flat outbound reply and a whole-channel
-    # session bucket, so a flat continuable cron continues on a plain reply.
-    supports_inchannel_continuable = True
-
     # Bounded-cache caps (instance assignment in tests overrides per adapter).
     _USER_NAME_CACHE_MAX = _CHANNEL_NAME_CACHE_MAX = _DM_CONVERSATION_CACHE_MAX = 5000
     _PROCESSED_MESSAGE_TS_MAX = _BOT_TS_MAX = _MENTIONED_THREADS_MAX = 5000
@@ -1772,7 +1768,6 @@ class SlackAdapter(BasePlatformAdapter):
             "[Slack] Authenticated as @%s in workspace %s (team: %s)", bot_name, team_name, team_id)
         self._warn_if_missing_group_dm_scopes(auth_response, team_name)
         self._warn_if_not_bot_token(auth_response, team_name)
-        self._warn_if_inchannel_without_flat_reply(team_name)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         """Connect to Slack via Socket Mode."""
@@ -2820,31 +2815,6 @@ class SlackAdapter(BasePlatformAdapter):
         """Each top-level DM reply thread is its own session (default True; set
         ``dm_top_level_threads_as_sessions: false`` for one session per DM channel)."""
         return self._extra_flag("dm_top_level_threads_as_sessions", default=True)
-
-    def _cron_continuable_surface(self) -> str:
-        """Continuable-cron surface: ``"thread"`` (default; seeded hidden thread) or
-        ``"in_channel"`` (flat; shared session ``(slack, channel_id, None)``), from
-        ``extra.cron_continuable_surface`` paired with ``reply_in_thread: false``. Unrecognised →
-        ``"thread"`` (fail safe)."""
-        raw = self.config.extra.get("cron_continuable_surface")
-        return "in_channel" if str(raw).strip().lower() == "in_channel" else "thread"
-
-    def _warn_if_inchannel_without_flat_reply(self, team_name: str) -> None:
-        """Warn when ``in_channel`` is set without ``reply_in_thread: false``: both must hold for a
-        flat cron seed to continue on a plain reply (same flat session). Warn only — the misconfig
-        fails safe to a threaded continuation, never an orphaned session."""
-        try:
-            if self._cron_continuable_surface() == "in_channel" and self.config.extra.get(
-                "reply_in_thread", True):
-                logger.warning(
-                    "[Slack] %s: cron_continuable_surface=in_channel is set WITHOUT "
-                    "reply_in_thread=false. A continuable in-channel cron job will deliver flat, "
-                    "but the bot will still reply to your continuation in a thread — so it falls "
-                    "back to a threaded continuation (\u2248 default behaviour), not the flat "
-                    "channel session you asked for. Set platforms.slack.extra.reply_in_thread: "
-                    "false to pair them.", team_name)
-        except Exception:
-            pass
 
     def _slack_allow_bots(self) -> str:
         """Return normalized Slack bot-message policy (scoped ``SLACK_ALLOW_BOTS`` → YAML → none)."""

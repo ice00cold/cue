@@ -21,6 +21,7 @@ from cron.scheduler import (
     run_job,
 )
 from cron.scheduler_delivery import _resolve_origin, _send_media_via_adapter
+from cron import scheduler_delivery as sd
 from tools.env_passthrough import clear_env_passthrough
 
 def test_cron_cleanup_worker_inherits_caller_contextvars():
@@ -167,7 +168,9 @@ class TestResolveOrigin:
         assert _resolve_origin(job) is None
 
 class TestResolveDeliveryTarget:
-    def test_origin_delivery_preserves_thread_id(self):
+    def test_origin_delivery_drops_thread_targeting(self):
+        """Cue: origin is an egress address (platform + chat) — a legacy stored thread_id must
+        never route the report into a thread/topic lane."""
         job = {
             "deliver": "origin",
             "origin": {
@@ -180,7 +183,6 @@ class TestResolveDeliveryTarget:
         assert _resolve_delivery_target(job) == {
             "platform": "telegram",
             "chat_id": "-1001",
-            "thread_id": "17585",
             "_resolved_from": "origin",
         }
 
@@ -347,10 +349,6 @@ class TestDeliverResultWrapping:
         relay.fronts_platform.side_effect = lambda platform: platform == Platform.SLACK
         relay.send_for_platform = AsyncMock(return_value=MagicMock(success=True))
         relay.send_voice = AsyncMock(return_value=MagicMock(success=True))
-        relay.supports_inchannel_continuable = False
-        # Not a real RelayAdapter: keep the auto-created accessor from
-        # shadowing the scalar False (MagicMock fabricates truthy callables).
-        relay.supports_inchannel_continuable_for_platform = None
 
         config = GatewayConfig(
             platforms={
@@ -492,14 +490,21 @@ class TestDeliverResultErrorReturns:
         assert result is not None
 
 class TestRunJobSessionPersistence:
-    def test_run_job_passes_session_db_and_cron_platform(self, tmp_path):
+    def test_run_job_runs_in_the_main_thread_and_never_ends_it(self, tmp_path):
+        """Cue: a fire appends to the profile's ONE persistent main thread — the session id is
+        the main-thread mint (never ``cron_<job>_<ts>``), the row carries the main session key,
+        and neither the scheduler nor agent.close() may END the conversation."""
         job = {
             "id": "test-job",
             "name": "test",
             "prompt": "hello",
         }
         fake_db = MagicMock()
-        fake_db.get_compression_tip.side_effect = lambda session_id: session_id
+        fake_db.find_latest_gateway_session_for_main_key.return_value = None
+        created = {}
+        fake_db.create_session.side_effect = (
+            lambda session_id, source, **kw: created.update(
+                {"session_id": session_id, "source": source, **kw}))
 
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler_delivery._resolve_origin", return_value=None), \
@@ -530,39 +535,34 @@ class TestRunJobSessionPersistence:
         kwargs = mock_agent_cls.call_args.kwargs
         assert kwargs["session_db"] is fake_db
         assert kwargs["platform"] == "cron"
-        assert kwargs["session_id"].startswith("cron_test-job_")
-        original_session_id = kwargs["session_id"]
-        fake_db.get_compression_tip.assert_called_once_with(original_session_id)
-        fake_db.end_session.assert_called_once()
-        call_args = fake_db.end_session.call_args
-        assert call_args[0][0] == original_session_id
-        assert call_args[0][1] == "cron_complete"
-        fake_db.close.assert_called_once()
+        from cron.main_thread import main_thread_session_key_for_current_profile
+
+        assert created["session_id"] == kwargs["session_id"]
+        assert created["session_key"] == main_thread_session_key_for_current_profile()
+        assert created["source"] == "cron"
+        # The persistent main thread is never titled, classified or ended.
+        fake_db.get_compression_tip.assert_not_called()
+        fake_db.set_session_title.assert_not_called()
+        fake_db.end_session.assert_not_called()
+        fake_db.update_session_cwd.assert_not_called()
+        assert mock_agent._end_session_on_close is False
         mock_agent.close.assert_called_once()
 
     def test_run_job_disarms_agent_close_after_scheduler_finalizes_session(self, tmp_path):
-        """Cron owns the terminal session reason; agent.close must not end it twice.
+        """Nobody may END the main thread after a fire: the scheduler never books a terminal
+        reason, and the agent's redundant row-finalization is disarmed at construction so
+        AIAgent.close() cannot end it either.
 
-        Regression for the #94736 teardown warning seen after every healthy cron
-        run: the scheduler closed its shared SessionDB, then AIAgent.close() tried
-        another end_session("agent_close"), forcing SessionDB to reopen solely
-        for a redundant write.
+        Regression shape of the #94736 teardown warning: a close() racing the released
+        SessionDB reopens the store solely for a redundant write.
         """
         job = {"id": "single-finalize", "name": "test", "prompt": "hello"}
         fake_db = MagicMock()
-        fake_db.get_compression_tip.side_effect = lambda session_id: session_id
-        closed = False
-        calls_after_close = []
-
-        def close_db():
-            nonlocal closed
-            closed = True
+        end_calls = []
 
         def end_session(*args):
-            if closed:
-                calls_after_close.append(args)
+            end_calls.append(args)
 
-        fake_db.close.side_effect = close_db
         fake_db.end_session.side_effect = end_session
 
         with patch("cron.scheduler._hermes_home", tmp_path), \
@@ -584,7 +584,7 @@ class TestRunJobSessionPersistence:
             mock_agent.run_conversation.return_value = {"final_response": "ok"}
 
             def close_agent():
-                if mock_agent._end_session_on_close:
+                if getattr(mock_agent, "_end_session_on_close", True):
                     fake_db.end_session(mock_agent.session_id, "agent_close")
 
             mock_agent.close.side_effect = close_agent
@@ -592,8 +592,9 @@ class TestRunJobSessionPersistence:
             success, *_ = run_job(job)
 
         assert success is True
-        assert fake_db.end_session.call_count == 1
-        assert calls_after_close == []
+        assert mock_agent._end_session_on_close is False
+        mock_agent.close.assert_called_once()
+        assert end_calls == [], "the persistent main thread must never be ended"
 
     @contextlib.contextmanager
     def _run_job_patches(self, tmp_path, extra=()):
@@ -819,7 +820,7 @@ class TestRunJobSessionPersistence:
         assert seen == {
             "platform": "slack",
             "chat_id": "C0B3KEP3SD6",
-            "thread_id": "1778485067.844139",
+            "thread_id": None,
         }
         assert os.getenv("HERMES_CRON_AUTO_DELIVER_PLATFORM") is None
         assert os.getenv("HERMES_CRON_AUTO_DELIVER_CHAT_ID") is None
@@ -1305,7 +1306,7 @@ class TestRunJobSkillBacked:
             register_env_passthrough(["NOTION_API_KEY"])
             return json.dumps({"success": True, "content": "# notion\nUse Notion."})
 
-        def _run_conversation(prompt, *, task_id=None):
+        def _run_conversation(prompt, *, task_id=None, conversation_history=None):
             from tools.env_passthrough import get_all_passthrough
 
             assert isinstance(task_id, str)
@@ -2071,437 +2072,37 @@ class TestCronDeliveryTargets:
         bot_chat = [v for k, v in targets.items() if k.startswith("bot-chat")]
         assert all(t["home_target_set"] for t in bot_chat)
 
-class TestCronDeliveryMirror:
-    """cron.mirror_delivery / per-job attach_to_session: opt-in append of a
-    cron delivery into the target chat's gateway session transcript.
+class TestOriginScopeDiscriminators:
+    """The persisted origin's workspace scope rides relay egress metadata (fail-closed tenant
+    guard on a cold-cache relay) — origin-matching targets only, never fan-out."""
 
-    Default OFF preserves the historical isolation guarantee byte-for-byte.
-    When enabled, delivery rides the existing gateway.mirror.mirror_to_session
-    so cron uses exactly the same path interactive send_message mirroring uses.
-    """
+    def _target(self, origin, target):
+        from gateway.config import GatewayConfig, Platform
 
-    def test_mirror_writes_user_role_with_label_not_assistant(self):
-        """Regression for #2221 / #2313: the cron brief must mirror as a USER
-        turn (with a [Cron delivery: ...] label), NOT assistant — an
-        assistant-role mirror lands as assistant->assistant after the agent's
-        last turn and breaks strict alternation on non-Anthropic providers."""
-        from cron.scheduler_delivery import _maybe_mirror_cron_delivery
+        fields = {name: None for name in sd._TargetDelivery.__dataclass_fields__}
+        fields.update(job={"id": "j1"}, platform=Platform.SLACK, platform_name="slack",
+                      chat_id=str(target["chat_id"]), origin=origin, config=GatewayConfig())
+        return sd._TargetDelivery(**fields)
 
-        with patch("gateway.mirror.mirror_to_session", return_value=True) as m:
-            _maybe_mirror_cron_delivery(
-                {"id": "j1", "name": "Morning Brief"}, "telegram", "123",
-                "Market movers today", thread_id=None, enabled=True,
-            )
-        m.assert_called_once()
-        args, kwargs = m.call_args
-        assert kwargs.get("role") == "user", "cron mirror must be a user turn, not assistant"
-        # The brief text is prefixed with a human-readable cron-delivery label
-        # so replay (where the mirror metadata is dropped at the SQLite
-        # boundary) still distinguishes it from a genuine user message.
-        assert args[2].startswith("[Cron delivery: Morning Brief]")
-        assert "Market movers today" in args[2]
-
-    def test_delivery_mirrors_clean_content_not_wrapped(self):
-        """When enabled, the mirror receives the CLEAN agent output, not the
-        cron header/footer-wrapped delivery text."""
-        from gateway.config import Platform
-
-        pconfig = MagicMock()
-        pconfig.enabled = True
-        mock_cfg = MagicMock()
-        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
-
-        with patch("gateway.config.load_gateway_config", return_value=mock_cfg), \
-             patch("tools.send_message_tool._send_to_platform", new=AsyncMock(return_value={"success": True})), \
-             patch("gateway.mirror.mirror_to_session", return_value=True) as mirror_mock:
-            job = {
-                "id": "test-job",
-                "name": "daily-report",
-                "deliver": "origin",
-                "origin": {"platform": "telegram", "chat_id": "123"},
-                "attach_to_session": True,
-            }
-            _deliver_result(job, "Here is today's summary.")
-
-        mirror_mock.assert_called_once()
-        mirrored_text = mirror_mock.call_args[0][2]
-        # Clean content, no cron wrapper.
-        assert "Here is today's summary." in mirrored_text
-        assert "Cronjob Response:" not in mirrored_text
-        assert "To stop or manage this job" not in mirrored_text
-
-    # --- origin-scoping (mirror only into the conversation that created the job) ---
-
-    # --- multi-participant parity with send_message (user_id passthrough) ---
-
-    # --- continuable cron: thread-preferred (Teknium's interface) ---
-
-    def test_seed_thread_session_creates_session_and_mirrors(self):
-        """Seeding a freshly-opened thread creates the thread-keyed session via
-        the adapter's live store and appends the brief via mirror_to_session."""
-        from cron.scheduler_delivery import _seed_cron_thread_session
-
-        store = MagicMock()
-        adapter = MagicMock()
-        adapter._session_store = store
-
-        with patch("gateway.mirror.mirror_to_session", return_value=True) as mirror_mock:
-            _seed_cron_thread_session(
-                {"id": "j1"}, adapter, "telegram", "123", "9001",
-                "Daily brief Task #2", chat_name="Ops",
-            )
-
-        # Session row created for the thread, then brief mirrored into it.
-        store.get_or_create_session.assert_called_once()
-        seeded_source = store.get_or_create_session.call_args[0][0]
-        # Telegram forum-topic replies key on the parent supergroup's ``group`` slot.
-        assert seeded_source.chat_type == "group"
-        assert seeded_source.thread_id == "9001"
-        mirror_mock.assert_called_once()
-        assert mirror_mock.call_args.kwargs.get("thread_id") == "9001"
-
-class TestCronContinuableSurfaceInChannel:
-    """cron_continuable_surface: in_channel — deliver a continuable cron FLAT
-    into a channel (no dedicated thread), so a plain channel reply continues the
-    job via the shared-channel session (platform, chat_id, None).
-
-    Design: decisions.md D1/D2/D6 + F5. The scheduler reads the per-platform key
-    generically from pconfig.extra; the in_channel branch is gated on the
-    adapter capability flag ``supports_inchannel_continuable`` (Slack=True,
-    others fail SAFE to thread). In in_channel mode the thread-open branch is
-    SKIPPED (thread_id stays None), then ``_seed_cron_channel_session`` CREATES
-    the flat shared-channel session and mirrors the brief into it (the shipped
-    mirror only APPENDS to an existing session, and the flat channel row is
-    otherwise absent for a chat_postMessage delivery).
-    """
-
-    def _slack_cfg(self, extra):
-        """A mock GatewayConfig with a Slack pconfig carrying ``extra``."""
-        from gateway.config import Platform
-
-        pconfig = MagicMock()
-        pconfig.enabled = True
-        pconfig.extra = extra
-        mock_cfg = MagicMock()
-        mock_cfg.platforms = {Platform.SLACK: pconfig}
-        return mock_cfg
-
-    def _run_inchannel_delivery(self, extra, adapter, *, mirror_ok=True, origin=None,
-                                attach_to_session=True):
-        """Drive _deliver_result down the live-adapter path for a Slack
-        channel-origin job with the given ``extra`` config. Returns the
-        _open_continuable_cron_thread mock and the mirror_to_session mock."""
-        from gateway.config import Platform
-        from concurrent.futures import Future
-
-        mock_cfg = self._slack_cfg(extra)
-
-        loop = MagicMock()
-        loop.is_running.return_value = True
-
-        def fake_run_coro(coro, _loop):
-            future = Future()
-            try:
-                import asyncio as _asyncio
-                future.set_result(_asyncio.run(coro))
-            except BaseException as _e:  # noqa: BLE001
-                future.set_exception(_e)
-            return future
-
-        job = {
-            "id": "brief-job",
-            "name": "Daily Brief",
-            "deliver": "origin",
-            # Channel origin: no thread_id (flat channel message scheduled it).
-            # Carries the scheduling user's id — the in_channel seed must key
-            # the flat channel session to THIS user (see build_session_key).
-            "origin": origin or {"platform": "slack", "chat_id": "C123", "user_id": "U_HUMAN"},
-            # Opt into the continuable mirror (parameterized: the seed must
-            # NOT depend on this — see the no-attach regression test).
-            "attach_to_session": attach_to_session,
-        }
-
-        with patch("gateway.config.load_gateway_config", return_value=mock_cfg), \
-             patch("cron.scheduler.load_config", return_value={"cron": {"wrap_response": False}}), \
-             patch("cron.scheduler_delivery._open_continuable_cron_thread") as open_thread_mock, \
-             patch("asyncio.run_coroutine_threadsafe", side_effect=fake_run_coro), \
-             patch("gateway.mirror.mirror_to_session", return_value=mirror_ok) as mirror_mock:
-            _deliver_result(
-                job, "Here is today's brief.",
-                adapters={Platform.SLACK: adapter}, loop=loop,
-            )
-        return open_thread_mock, mirror_mock
-
-    def _slack_adapter(self, supports_inchannel=True, with_store=True):
-        adapter = AsyncMock()
-        adapter.send.return_value = MagicMock(
-            success=True, message_id="msg_1", raw_response=None,
-        )
-        # Capability flag read via getattr in the scheduler.
-        adapter.supports_inchannel_continuable = supports_inchannel
-        # Pin the per-platform accessor OFF: an unspecced AsyncMock would
-        # auto-create it as a truthy callable, silently routing every test
-        # through the relay accessor branch instead of the native scalar
-        # fallback these tests describe (and making supports_inchannel=False
-        # unenforceable). None -> not callable -> scalar path, like a real
-        # native adapter that never defines the method.
-        adapter.supports_inchannel_continuable_for_platform = None
-        # A live session store so the in_channel seed can CREATE the flat row
-        # (the real bug: without a create step the mirror no-ops on a missing
-        # session and the brief is lost). Use a plain MagicMock store.
-        if with_store:
-            adapter._session_store = MagicMock()
-        return adapter
-
-    def test_in_channel_skips_thread_open(self):
-        """G2: in_channel mode must NOT open a handoff thread."""
-        adapter = self._slack_adapter(supports_inchannel=True)
-        open_thread_mock, _ = self._run_inchannel_delivery(
-            {"cron_continuable_surface": "in_channel"}, adapter,
-        )
-        open_thread_mock.assert_not_called()
-
-    # --- _seed_cron_channel_session: the create-then-mirror unit + the
-    #     KEY-MATCH invariant (seed key must equal the inbound reply's key) ---
-
-    def test_seed_channel_session_key_matches_inbound_channel_reply(self):
-        """The whole point: the flat session the seed CREATES must be keyed
-        identically to what a plain inbound channel reply resolves to. Assert
-        the invariant directly via build_session_key, not just call args."""
-        from cron.scheduler_delivery import _seed_cron_channel_session
-        from gateway.session import build_session_key, SessionSource
-        from gateway.config import Platform
-
-        store = MagicMock()
-        adapter = MagicMock()
-        adapter._session_store = store
-
-        with patch("gateway.mirror.mirror_to_session", return_value=True) as mirror_mock:
-            ok = _seed_cron_channel_session(
-                {"id": "j1", "name": "Brief"}, adapter, "slack", "C123",
-                "Daily brief", is_dm=False, user_id="U_HUMAN", chat_name="ops",
-            )
-        assert ok is True
-        seeded_source = store.get_or_create_session.call_args[0][0]
-        seed_key = build_session_key(seeded_source)
-
-        # What a plain top-level channel reply (reply_in_thread:false → thread
-        # None) from the same user resolves to:
-        inbound = SessionSource(
-            platform=Platform.SLACK, chat_id="C123", chat_type="group",
-            user_id="U_HUMAN", thread_id=None,
-        )
-        assert seed_key == build_session_key(inbound), (
-            f"seed key {seed_key} != inbound reply key {build_session_key(inbound)} "
-            "— the reply would NOT continue the seeded session"
-        )
-        mirror_mock.assert_called_once()
-        assert mirror_mock.call_args.kwargs.get("thread_id") is None
-        assert mirror_mock.call_args.kwargs.get("user_id") == "U_HUMAN"
-
-    def test_in_channel_seed_fires_without_attach_to_session(self):
-        """REGRESSION (live, Alice 2026-08-19): the in_channel seed was gated on
-        mirror_this_target (mirror_enabled AND origin match), so a continuable
-        in_channel cron created WITHOUT attach_to_session (and with the
-        cron.mirror_delivery global at its default False) delivered the brief
-        flat but never seeded the flat session — the next plain reply hit a
-        blank session and the agent had no idea about its own delivery message.
-
-        in_channel IS the continuation surface: the seed must fire on origin
-        match alone. attach_to_session stays the opt-in for the SEPARATE
-        default-surface mirror behavior; it must not be required here."""
-        from cron.scheduler import _deliver_result  # noqa: F401 (driven via helper)
-
-        adapter = self._slack_adapter(supports_inchannel=True)
-        with patch("cron.scheduler_delivery._seed_cron_channel_session", return_value=True) as seed_mock:
-            self._run_inchannel_delivery(
-                {"slack": {"cron_continuable_surface": "in_channel"}}, adapter,
-                attach_to_session=False,
-            )
-        seed_mock.assert_called_once()
-        # user_id must ride along even without the mirror opt-in — the flat
-        # session key includes it on per-user-isolated chats.
-        assert seed_mock.call_args.kwargs.get("user_id") == "U_HUMAN"
-
-    def test_in_channel_flattens_thread_without_attach_to_session(self):
-        """REGRESSION: the thread-id-clearing gate was `mirror_this_target`
-        while the seed below had been decoupled to origin-match alone. With
-        the default knobs off (attach_to_session=False, cron.mirror_delivery
-        unset) and an origin carrying a REAL thread_id, the brief still
-        delivered INTO the origin thread while the flat (thread_id=None)
-        session got seeded — brief and continuation surface in different
-        places. The flatten must use the same gate as the seed: origin_target.
-        Asserts on the routed DeliveryTarget, not just that the seed ran."""
-        captured = {}
-
-        class _SpyRouter:
-            def __init__(self, *a, **k):
-                pass
-
-            async def _deliver_to_platform(self, target, text, metadata, transport=None):
-                captured["target"] = target
-                return {"success": True, "message_id": "msg_1"}
-
-        adapter = self._slack_adapter(supports_inchannel=True)
-        origin_with_thread = {
-            "platform": "slack", "chat_id": "C123", "user_id": "U_HUMAN",
-            # Genuine origin thread (job created from inside a thread).
-            "thread_id": "1787188000.000100",
-        }
-        with patch("gateway.delivery.DeliveryRouter", _SpyRouter), \
-             patch("cron.scheduler_delivery._seed_cron_channel_session", return_value=True) as seed_mock:
-            self._run_inchannel_delivery(
-                {"slack": {"cron_continuable_surface": "in_channel"}}, adapter,
-                attach_to_session=False, origin=origin_with_thread,
-            )
-        seed_mock.assert_called_once()
-        assert captured["target"].thread_id is None, (
-            "in_channel delivery routed into the origin thread "
-            f"({captured['target'].thread_id}) — the flat seeded session "
-            "does not match where the brief actually landed"
-        )
-
-    def test_origin_scope_id_rides_delivery_metadata(self):
-        """REGRESSION (restart-shaped): the connector's fail-closed tenant
-        guard resolves the workspace from metadata.scope_id. After a gateway
-        restart the RelayAdapter's per-chat scope cache is cold, and
-        DeliveryRouter stamps scope only for the configured HOME channel —
-        so a scoped Slack origin that is NOT the home chat egressed with no
-        scope_id and could be rejected before delivery. The scheduler must
-        stamp the persisted origin scope onto origin-matching routing
-        metadata (and never onto fan-out targets, which the origin-match
-        gate already excludes)."""
-        captured = {}
-
-        class _SpyRouter:
-            def __init__(self, *a, **k):
-                pass
-
-            async def _deliver_to_platform(self, target, text, metadata, transport=None):
-                captured["metadata"] = metadata
-                return {"success": True, "message_id": "msg_1"}
-
-        adapter = self._slack_adapter(supports_inchannel=True)
-        scoped_origin = {
-            "platform": "slack", "chat_id": "C123", "user_id": "U_HUMAN",
-            # Persisted workspace scope (captured at job creation). C123 is
-            # not any configured home channel in this harness.
-            "scope_id": "T0AAAA111",
-        }
-        with patch("gateway.delivery.DeliveryRouter", _SpyRouter), \
-             patch("cron.scheduler_delivery._seed_cron_channel_session", return_value=True):
-            self._run_inchannel_delivery(
-                {"slack": {"cron_continuable_surface": "in_channel"}}, adapter,
-                attach_to_session=False, origin=scoped_origin,
-            )
-        assert captured["metadata"].get("scope_id") == "T0AAAA111", (
-            "persisted origin scope_id did not reach the delivery metadata — "
-            "a cold-cache relay egress has no tenant discriminator"
-        )
+    def test_origin_scope_id_rides_route_and_media_metadata(self):
+        t = self._target({"platform": "slack", "chat_id": "C123", "scope_id": "T0AAAA111"},
+                         {"platform": "slack", "chat_id": "C123"})
+        _thread, route_metadata, media_metadata = sd._live_route_metadata(t)
+        assert route_metadata.get("scope_id") == "T0AAAA111"
+        assert media_metadata.get("scope_id") == "T0AAAA111"
 
     def test_legacy_origin_without_scope_stamps_nothing(self):
-        """Legacy jobs (origin persisted before scope capture) must not gain
-        a scope_id key — the relay's per-chat cache / home-channel stamping
-        remain the only sources, exactly today's behavior."""
-        captured = {}
+        t = self._target({"platform": "slack", "chat_id": "C123"},
+                         {"platform": "slack", "chat_id": "C123"})
+        _thread, route_metadata, media_metadata = sd._live_route_metadata(t)
+        assert "scope_id" not in route_metadata and "scope_id" not in media_metadata
 
-        class _SpyRouter:
-            def __init__(self, *a, **k):
-                pass
+    def test_fan_out_target_gets_no_origin_discriminators(self):
+        t = self._target({"platform": "slack", "chat_id": "C123", "scope_id": "T0AAAA111"},
+                         {"platform": "slack", "chat_id": "C999"})
+        _thread, route_metadata, media_metadata = sd._live_route_metadata(t)
+        assert "scope_id" not in route_metadata and "scope_id" not in media_metadata
 
-            async def _deliver_to_platform(self, target, text, metadata, transport=None):
-                captured["metadata"] = metadata
-                return {"success": True, "message_id": "msg_1"}
-
-        adapter = self._slack_adapter(supports_inchannel=True)
-        with patch("gateway.delivery.DeliveryRouter", _SpyRouter), \
-             patch("cron.scheduler_delivery._seed_cron_channel_session", return_value=True):
-            self._run_inchannel_delivery(
-                {"slack": {"cron_continuable_surface": "in_channel"}}, adapter,
-                attach_to_session=False,
-            )
-        assert "scope_id" not in captured["metadata"]
-
-    def test_native_adapter_scalar_false_fails_safe_to_thread(self):
-        """D6 fallback boundary with a REAL (non-mock) adapter shape: a native
-        adapter defines only the scalar supports_inchannel_continuable and no
-        per-platform accessor — MagicMock-based fixtures can't prove this
-        branch because they fabricate a truthy accessor. Scalar False must
-        fail safe to thread mode: the in_channel seed never fires."""
-
-        class _NativeShapedAdapter:
-            supports_inchannel_continuable = False
-            _session_store = None
-
-            def __init__(self):
-                self.sent = []
-
-            async def send(self, chat_id, content, metadata=None, **kwargs):
-                self.sent.append((chat_id, content))
-                return MagicMock(success=True, message_id="msg_1",
-                                 raw_response=None)
-
-        adapter = _NativeShapedAdapter()
-        assert not callable(
-            getattr(adapter, "supports_inchannel_continuable_for_platform", None)
-        )
-        with patch("cron.scheduler_delivery._seed_cron_channel_session") as seed_mock:
-            self._run_inchannel_delivery(
-                {"slack": {"cron_continuable_surface": "in_channel"}}, adapter,
-                attach_to_session=False,
-            )
-        # Delivery must have gone through the LIVE adapter — otherwise a
-        # broken harness that never delivers would also leave the seed
-        # uncalled and this test would pass for the wrong reason.
-        assert len(adapter.sent) == 1
-        assert adapter.sent[0][0] == "C123"
-        # Capability absent -> surface fails safe to thread -> flat seed
-        # must NOT run (D6).
-        seed_mock.assert_not_called()
-
-    def test_seed_mirrors_into_exact_created_session_on_populated_chat(self):
-        """REGRESSION (live, Alice 2026-08-19 19:17): 'in_channel seed did NOT
-        land'. The seed created the flat session row, then mirror_to_session
-        re-discovered the target via origin heuristics — and on a populated
-        chat (flat session + N per-message thread sessions sharing chat_id,
-        mixed user_ids) find_session_by_origin's multi-candidate bail-out
-        returned None, silently dropping the brief. The seed must mirror into
-        the EXACT session row it just created, no rediscovery."""
-        from cron.scheduler_delivery import _seed_cron_channel_session
-
-        store = MagicMock()
-        created = MagicMock()
-        created.session_id = "sess-flat-exact"
-        store.get_or_create_session.return_value = created
-        adapter = MagicMock()
-        adapter._session_store = store
-
-        with patch("gateway.mirror.mirror_to_session", return_value=True) as mirror_mock:
-            ok = _seed_cron_channel_session(
-                {"id": "j1", "name": "Brief"}, adapter, "slack", "D0BJTDCSR7C",
-                "Daily brief", is_dm=True, user_id="U_HUMAN", chat_name=None,
-            )
-        assert ok is True
-        # The mirror received the exact created session id — origin-scan
-        # heuristics (and their populated-chat bail-out) are out of the path.
-        assert mirror_mock.call_args.kwargs.get("session_id") == "sess-flat-exact"
-
-    def test_in_channel_also_seeds_thread_surface_of_delivered_brief(self):
-        """REGRESSION (live, Alice 2026-08-19 19:19): the user replied IN THE
-        BRIEF'S THREAD (Slack's natural affordance on a flat message). That
-        reply keys to (chat, thread=<brief ts>) — a session in_channel mode
-        never seeded, so the agent had no idea about its own brief. The flat
-        delivery's message_id must anchor a companion thread-surface seed."""
-        adapter = self._slack_adapter(supports_inchannel=True)
-        with patch("cron.scheduler_delivery._seed_cron_channel_session", return_value=True), \
-             patch("cron.scheduler_delivery._seed_cron_thread_session") as thread_seed_mock:
-            self._run_inchannel_delivery(
-                {"slack": {"cron_continuable_surface": "in_channel"}}, adapter,
-                attach_to_session=False,
-            )
-        thread_seed_mock.assert_called_once()
-        # Anchored on the delivered message id (the router's SendResult).
-        assert thread_seed_mock.call_args.args[4] == "msg_1"
 
 class TestMultiTargetDeliveryContinuesOnFailure:
     """When delivery to one target fails inside the standalone thread-pool
@@ -2594,19 +2195,6 @@ class TestBuildJobPromptExtraPrompt:
         job = {"prompt": "original"}
         _build_job_prompt(job, extra_prompt="transient context")
         assert job["prompt"] == "original"
-
-class TestSetCronSessionTitle:
-    """Robust cron session titling: #50535/#50536/#50537."""
-
-    def test_dedupes_on_duplicate_title(self):
-        # First write collides (ValueError); helper falls back to lineage #N.
-        from cron.scheduler import _set_cron_session_title
-        db = MagicMock()
-        db.set_session_title.side_effect = [ValueError("in use"), True]
-        db.get_next_title_in_lineage.return_value = "Nightly Synthesis #2"
-        out = _set_cron_session_title(db, "sess-1", "Nightly Synthesis")
-        assert out == "Nightly Synthesis #2"
-        db.get_next_title_in_lineage.assert_called_once_with("Nightly Synthesis")
 
 class TestFailureStreakNudge:
     """Poke-inspired repeated-failure review nudge (_failure_streak_nudge)."""

@@ -25,7 +25,6 @@ def _fresh_ledger(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setattr(dl, "_db_path", lambda: home / "state.db")
     monkeypatch.setattr(dl, "ledger_enabled", lambda config=None: True)
-    monkeypatch.setattr(sd, "_maybe_mirror_cron_delivery", lambda *a, **k: None)
 
 
 @pytest.fixture
@@ -49,7 +48,7 @@ def _deliver_through_router(monkeypatch, loop, *, live_error: str):
     fields = {name: None for name in sd._TargetDelivery.__dataclass_fields__}
     fields.update(job={"id": "job-1"}, platform=Platform.TELEGRAM, platform_name="telegram", chat_id="-100",
                   thread_id="42", transport=Transport(), config=GatewayConfig(), loop=loop,
-                  target_adapters={}, mirror_text="", origin={})
+                  target_adapters={}, origin={})
     t = sd._TargetDelivery(**fields)
     standalone_calls = []
     monkeypatch.setattr(

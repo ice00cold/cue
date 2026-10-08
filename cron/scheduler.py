@@ -44,7 +44,7 @@ from hermes_cli._subprocess_compat import windows_hide_flags
 from hermes_cli.config import (
     load_config, load_config_readonly)
 from hermes_cli.fallback_config import get_fallback_chain, scoped_fallback_chain
-from hermes_time import now as _hermes_now, safe_strftime
+from hermes_time import now as _hermes_now
 from agent.interrupt_compat import request_hard_interrupt
 from agent.delegation_context import (
     enter_non_dispatcher_owned_context, exit_non_dispatcher_owned_context)
@@ -53,39 +53,6 @@ from agent.session_activity import AwakeIdleMeter
 from agent.turn_failure_copy import is_max_iteration_handoff
 
 logger = logging.getLogger(__name__)
-
-
-def _set_cron_session_title(session_db, session_id, base_title):
-    """Persist a non-blank, unique title for a finished cron session; returns it (None if unset).
-    Runs BEFORE end_session()/close() so no write races the close. Duplicate title (unique-index
-    ValueError) -> get_next_title_in_lineage(); if unavailable, raise rather than end up untitled.
-
-    Centralizes the title write so the cron finally block can guarantee a non-blank, unique title is
-    persisted before end_session()/close() tear the connection down (issues #50535, #50536, #50537):
-    - #50535: never leaves the session blank. base_title already carries a cron-id fallback for nameless
-    jobs; this also guards a failed write. Recover by appending a #N suffix via get_next_title_in_lineage()
-    when supported, instead of swallowing the error and ending up untitled. - #50536: this runs
-    synchronously in the cron finally block ahead of the session close, so no in-flight title write can race
-    the close.
-    """
-    if not session_db or not session_id:
-        return None
-    title = (base_title or "").strip()
-    if not title:
-        return None
-    try:
-        session_db.set_session_title(session_id, title)
-        return title
-    except ValueError:
-        # Unique-title collision: fall back to the next lineage title (base #2, #3, ...).
-        next_title_fn = getattr(session_db, "get_next_title_in_lineage", None)
-        if next_title_fn is None:
-            raise
-        deduped = next_title_fn(title)
-        if not deduped or deduped == title:
-            raise
-        session_db.set_session_title(session_id, deduped)
-        return deduped
 
 
 def _job_route_pinned(job: dict) -> bool:
@@ -1452,47 +1419,6 @@ def _run_cron_cleanup_with_timeout(
     return True
 
 
-class _BoundedCronSessionDB:
-    """Proxy SessionDB cleanup calls through the cron cleanup timeout; after the first failure or
-    timeout all later calls fail immediately (a damaged connection leaks at most one worker)."""
-
-    def __init__(self, session_db, job_id: str):
-        self._session_db = session_db
-        self._job_id = job_id
-        self._disabled = False
-
-    def __getattr__(self, name):
-        target = getattr(self._session_db, name)
-        if not callable(target):
-            return target
-
-        def _bounded(*args, **kwargs):
-            if self._disabled:
-                raise RuntimeError("session finalization disabled after prior cleanup failure")
-
-            result = {}
-
-            def _call():
-                try:
-                    result["value"] = target(*args, **kwargs)
-                except BaseException as exc:
-                    result["error"] = exc
-                    raise
-
-            ok = _run_cron_cleanup_with_timeout(
-                _call, job_id=self._job_id, label=f"session finalization ({name})")
-            if not ok:
-                error = result.get("error")
-                if error is not None:
-                    raise error
-                # No error yet not complete == timeout: disable so later steps fail fast.
-                self._disabled = True
-                raise TimeoutError(f"session finalization method {name} timed out")
-            return result.get("value")
-
-        return _bounded
-
-
 def _job_doc_header(job_name: str, job_id: str, now_iso: str, mode: str) -> str:
     """Common markdown header for the short-circuit run docs (no_agent / monitor)."""
     return (
@@ -1928,10 +1854,11 @@ def _raise_inactivity_timeout(agent, job_name: str, limit_s: float) -> None:
 
 def _run_agent_with_watchdog(
     agent, prompt: str, job: dict, job_id: str, job_name: str, task_id: str, cancel_event,
-    worker_state: Optional[dict] = None,
+    worker_state: Optional[dict] = None, conversation_history=None,
 ) -> dict:
     """Run ``agent.run_conversation`` on a worker thread under the inactivity (not wall-clock)
-    watchdog: default 600s, override HERMES_CRON_TIMEOUT, 0 = unlimited."""
+    watchdog: default 600s, override HERMES_CRON_TIMEOUT, 0 = unlimited. A fresh cron agent
+    carries no in-memory history, so a main-thread run passes the loaded transcript here."""
     _cron_timeout = _cron_inactivity_seconds()
     _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
     _POLL_INTERVAL = 5.0
@@ -1974,7 +1901,8 @@ def _run_agent_with_watchdog(
     # Carry scheduler-scoped ContextVar state (e.g. env passthrough) into the worker thread.
     _cron_context = contextvars.copy_context()
     _cron_future = _cron_pool.submit(
-        _cron_context.run, agent.run_conversation, prompt, task_id=task_id)
+        _cron_context.run, agent.run_conversation, prompt, task_id=task_id,
+        conversation_history=conversation_history)
     if worker_state is not None:
         worker_state["future"] = _cron_future
     _inactivity_timeout = False
@@ -2106,98 +2034,21 @@ def _final_response_from_result(result: dict, job_id: str, job_name: str, AIAgen
 
 
 def _finalize_cron_session(session_db, agent, job_id: str, job_name: str, cron_session_id: str,
-                           workdir: Optional[str] = None) -> None:
-    """Title, classify, end and release the cron session after the agent turn has returned."""
-    # Bound every DB op so storage failure cannot hold the dispatch guard.
-    _session_db = _BoundedCronSessionDB(session_db, job_id)
-    # Compression may have rotated the run onto a continuation: finalize that, not the stale cron
-    # id. SessionDB lineage is authoritative; agent.session_id is only a fail-safe.
-    _final_cron_session_id = cron_session_id
+                           workdir: Optional[str] = None, *, persistent: bool = True) -> None:
+    """Release the run's SessionDB handle after the agent turn has returned.
+
+    Cue: every fire runs in the profile's ONE persistent main thread, so there is nothing to
+    title, classify, cwd-stamp or end — the conversation must outlive the fire. The agent's
+    redundant row-finalization is disarmed (``AIAgent.close`` must not end the main session
+    either, #94736's teardown race); its resource teardown still runs in ``_teardown_cron_agent``."""
     try:
-        _compression_tip = _session_db.get_compression_tip(cron_session_id)
-        if _compression_tip:
-            _final_cron_session_id = _compression_tip
-    except (Exception, KeyboardInterrupt) as e:
-        with contextlib.suppress((Exception, KeyboardInterrupt)):
-            _agent_session_id = getattr(agent, "session_id", None)
-            # CLI (single-process) path: the approval contextvar is only bound during gateway/TUI turns and
-            # HERMES_SESSION_KEY is not in the CLI environment, so the key resolves empty here. Since #64240
-            # the CLI drains completions through a positive-ownership filter keyed on the durable
-            # AIAgent.session_id — an empty session_key would fail closed and the CLI could never claim its
-            # own completions, while a restored foreign event with an empty key could leak into any
-            # unfiltered consumer (#64484). Stamp the parent's durable session id instead; compression
-            # rotations are handled on the drain side via resolve_resume_session_id lineage resolution.
-            if _agent_session_id:
-                _final_cron_session_id = _agent_session_id
-        logger.debug("Job '%s': failed to resolve cron compression tip: %s", job_id, e)
-    # Title must persist BEFORE end_session()/close(). Run-time suffix keeps it unique against the
-    # sessions.title index; the fallbacks below guarantee a non-blank title.
-    try:
-        # Title the cron session from the job (name -> id) and PERSIST it BEFORE end_session()/close() tear
-        # the connection down, so the close can never run over an in-flight title write (#50536).
-        _title_base = " ".join(job_name.split())[:60].strip() or f"cron {job_id}"
-        _cron_title = f"{_title_base} · {safe_strftime(_hermes_now(), '%b %d %H:%M')}"
-        if not _set_cron_session_title(_session_db, _final_cron_session_id, _cron_title):
-            _set_cron_session_title(_session_db, _final_cron_session_id, f"cron {job_id}")
-    except (Exception, KeyboardInterrupt) as e:
-        logger.debug("Job '%s': failed to set cron session title: %s", job_id, e)
-        # Never leave the session untitled.
-        # Try the next free title in the lineage, then a bare id-stamped title. See #50535.
-        for _fallback in (
-            getattr(_session_db, "get_next_title_in_lineage", lambda b: b)(f"cron {job_id}"),
-            f"cron {job_id} {_final_cron_session_id[-6:]}"):
-            try:
-                if _set_cron_session_title(_session_db, _final_cron_session_id, _fallback):
-                    break
-            except (Exception, KeyboardInterrupt):
-                continue
-    # Book cron_complete only when the last row is a real assistant reply ([SILENT] counts). Only a
-    # POSITIVELY recognized bad status downgrades (keep tuple in sync with
-    # session_lifecycle_statuses); unknown values / probe failures fail OPEN.
-    # Verified completion booking (#93820): the run may only be recorded as cron_complete when the session's
-    # LAST message row is a real assistant reply — a plain answer or the [SILENT] sentinel (both are
-    # assistant-text rows, so both classify as 'complete'). A turn that died after a tool call,
-    # mid-API-wait, or without any assistant text leaves the last row as a tool result / pending call / user
-    # prompt and must not surface as a healthy run. session_lifecycle_statuses is the existing cost-bounded
-    # classifier for exactly this shape. Only a POSITIVELY recognized pathological status (see the status
-    # vocabulary in hermes_state's session_lifecycle_statuses docstring — keep the tuple below in sync when
-    # it grows) downgrades the booking: an unknown value (newer classifier shape, test doubles) keeps the
-    # historical reason, and so does a failed probe — the booking itself is FAIL-OPEN on probe errors,
-    # because classification is best-effort metadata and must not mislabel a healthy run.
-    _end_reason = "cron_complete"
-    try:
-        _statuses = _session_db.session_lifecycle_statuses([_final_cron_session_id])
-        _lifecycle = _statuses.get(_final_cron_session_id)
-        if _lifecycle in ("interrupted", "error", "empty"):
-            _end_reason = "cron_incomplete_no_output"
-            logger.warning(
-                "Job '%s': session ended without a final assistant "
-                "message (lifecycle=%s) — booking run as %s",
-                job_id, _lifecycle, _end_reason)
-    except (Exception, KeyboardInterrupt) as e:
-        logger.debug("Job '%s': session lifecycle classification failed: %s", job_id, e)
-    # Stamp the job's workdir on the row BEFORE end_session (title-write ordering, #50536): the
-    # sidebar groups by cwd prefix and nothing else writes a cron row's cwd (#108205).
-    if workdir:
-        try:
-            _session_db.update_session_cwd(_final_cron_session_id, workdir)
-        except (Exception, KeyboardInterrupt) as e:
-            logger.debug("Job '%s': failed to stamp workdir on session row: %s", job_id, e, exc_info=True)
-    try:
-        _session_db.end_session(_final_cron_session_id, _end_reason)
-        # The scheduler owns cron-session finalization. AIAgent.close() also
-        # finalizes owned session rows by default; once the shared SessionDB is
-        # released below, that second end_session() would reopen the just-closed
-        # SQLite handle (#94736). The reason is durably booked, so disarm only the
-        # agent's redundant row-finalization; its resource teardown still runs in
-        # _teardown_cron_agent.
         if agent is not None:
             agent._end_session_on_close = False
     except (Exception, KeyboardInterrupt) as e:
-        logger.debug("Job '%s': failed to end session: %s", job_id, e)
+        logger.debug("Job '%s': failed to disarm agent session finalize: %s", job_id, e)
     try:
         from hermes_state_registry import release_or_close
-        release_or_close(_session_db)
+        release_or_close(session_db)
     except (Exception, KeyboardInterrupt) as e:
         logger.debug("Job '%s': failed to close SQLite session store: %s", job_id, e)
 
@@ -2550,7 +2401,8 @@ def run_job(
         return early
     from run_agent import AIAgent
 
-    _cron_session_id = f"cron_{job_id}_{_hermes_now().strftime('%Y%m%d_%H%M%S')}"
+    _cron_session_id: Optional[str] = None
+    _persistent_session = False
     logger.info("Running job '%s' (ID: %s)", job_name, job_id)
     logger.info("Prompt: %s", prompt[:100])
 
@@ -2576,14 +2428,30 @@ def run_job(
 
         # Open state.db only after every early-return gate has passed.
         _session_db = _open_cron_session_db(job)
+        # Cue: the fire runs in the profile's ONE main thread (cron/main_thread.py) — its prompt
+        # and response append to the persistent conversation under the durable turn lease, and
+        # the session is never titled or ended. No store handle (timeout path): the run cannot
+        # join the main thread, so fall back to the upstream per-fire id and leave it unowned.
+        if _session_db is not None:
+            from cron.main_thread import ensure_main_thread_session, load_main_thread_history
+            _cron_session_id, _persistent_session = ensure_main_thread_session(
+                _session_db, _hermes_now())
+        if not _cron_session_id:
+            _cron_session_id = f"cron_{job_id}_{_hermes_now().strftime('%Y%m%d_%H%M%S')}"
         agent = _construct_cron_agent(
             AIAgent, job, _cfg, setup, workdir=scope.workdir, session_id=_cron_session_id,
             session_db=_session_db)
+        if _persistent_session:
+            # close()/finalize must never END the main thread's session row.
+            agent._end_session_on_close = False
         _audit = _FireAudit(job, job_id, model)
 
         result = _run_agent_with_watchdog(
             agent, prompt, job, job_id, job_name, scope.task_id, cancel_event,
-            worker_state=_worker_state)
+            worker_state=_worker_state,
+            conversation_history=(
+                load_main_thread_history(_session_db, _cron_session_id)
+                if _persistent_session else None))
         final_response = _final_response_from_result(result, job_id, job_name, AIAgent)
         if (setup.fallback_notice and final_response.strip() and not _is_cron_silence_response(final_response)
                 and _cron_failure_marker_error(final_response) is None):
@@ -2637,11 +2505,11 @@ def run_job(
         from cron.scheduler_detached_worker import defer_teardown_to_running_worker
         _worker_teardown_deferred = defer_teardown_to_running_worker(
             _worker_state.get("future"), _session_db, agent, job_id, job_name, _cron_session_id,
-            workdir=scope.workdir)
+            workdir=scope.workdir, persistent=_persistent_session)
         scope.exit()
         if _session_db and not _worker_teardown_deferred:
             _finalize_cron_session(_session_db, agent, job_id, job_name, _cron_session_id,
-                                   workdir=scope.workdir)
+                                   workdir=scope.workdir, persistent=_persistent_session)
         # Tear down the ephemeral agent or the gateway leaks fds per tick (EMFILE). With deferred
         # teardown, hand the live agent back: delivery needs a live async client.
         # Release subprocesses, terminal sandboxes, browser daemons, and the main OpenAI/httpx client held
