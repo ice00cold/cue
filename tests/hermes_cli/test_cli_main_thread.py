@@ -73,3 +73,26 @@ def _resolve(cli, resume):
 
     method = CLIInitMixin._resolve_startup_session_id.__get__(cli)
     return method(resume)
+
+
+def test_startup_replays_the_main_threads_stored_transcript(tmp_path):
+    """A window that attaches the main thread continues the conversation: the stored transcript
+    is replayed into the live context (same projection the gateway's next turn loads)."""
+    from hermes_cli.cli_init_mixin import CLIInitMixin
+
+    db = _db(tmp_path)
+    sid = resolve_main_thread_session(db)
+    db.append_message(sid, "user", "earlier question")
+    db.append_message(sid, "assistant", "earlier answer")
+
+    cli = SimpleNamespace(
+        _session_db=db,
+        session_start=__import__("datetime").datetime.now(),
+        conversation_history=[],
+    )
+    method = CLIInitMixin._resolve_startup_session_id.__get__(cli)
+    resolved, on_main = method(None)
+
+    assert (resolved, on_main) == (sid, True)
+    assert [m["content"] for m in cli.conversation_history] == [
+        "earlier question", "earlier answer"]

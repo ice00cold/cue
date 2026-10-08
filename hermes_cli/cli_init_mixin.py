@@ -323,14 +323,23 @@ class CLIInitMixin:
     def _resolve_startup_session_id(self, resume) -> tuple[str, bool]:
         """``(session_id, on_main_thread)``. An explicit --resume/<target> keeps its own session
         (kanban workers, bot-chat lanes, imports). Otherwise the CLI attaches the profile's ONE
-        main thread — the same conversation the gateway serves."""
+        main thread — the same conversation the gateway serves — replaying its stored transcript
+        into the live context the same way the gateway's next turn would."""
         if resume:
             return resume, False
         from hermes_cli.main_thread import resolve_main_thread_session
         session_id = resolve_main_thread_session(self._session_db)
-        if session_id:
-            return session_id, True
-        return new_session_id(self.session_start), False
+        if not session_id:
+            return new_session_id(self.session_start), False
+        if self._session_db:
+            try:
+                restored = self._session_db.get_messages_as_conversation(
+                    session_id, repair_alternation=True)
+                self.conversation_history = [
+                    m for m in restored if m.get("role") != "session_meta"]
+            except Exception:
+                logger.warning("Main-thread history replay failed", exc_info=True)
+        return session_id, True
 
     def _init_session_store(self):
         """Open the session store early (so /title works before the first message) + opportunistic maintenance."""
