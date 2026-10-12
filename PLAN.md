@@ -72,7 +72,7 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 
 ### Phase 5 — OpenChamber + polish
 - [x] Project lives in OpenChamber for dev (phone/desktop) *(de facto since Phase 2: every phase built by an agent in an OpenChamber-native worktree, orchestrated from the Cue Telegram thread; sessions group as worktree nodes under the cue project)*
-- [ ] Optional: OpenChamber as a front-end for the main thread (agent-tool/relay investigation)
+- [x] Optional: OpenChamber as a front-end for the main thread (agent-tool/relay investigation) *(OC-FRONTEND-INVESTIGATION.md — verdict LATER: Telegram remains the front-end; when wanted, start with a read-only MCP tool surface, then the provider→api_server path; cwd-window and forwarding-pipe designs are NO-GO)*
 
 ## Open decisions
 1. **Name** — working name `cue` (matches the proactive-AI concept). Rename = `mv` + rebrand + fork name.
