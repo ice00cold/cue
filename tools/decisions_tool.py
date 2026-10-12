@@ -3,8 +3,10 @@
 
 Plain registry tools: decision state is durable per-profile file state, so handlers resolve
 ``<home>/decisions.yaml`` through ``get_hermes_home()`` at call time (each served profile
-gets its own queue). Logging a decision also pings the profile's Telegram home channel
-(``notify_pending_decision``) so a stalled fork never waits for the user to notice.
+gets its own queue). Logging a decision also notifies the user per the Phase 4 escalation
+rules (``deliver_decision_ping``): wake-tier impact pings the profile's Telegram home
+channel immediately, everything else queues into the proactive outbox for the next batched
+report — a stalled fork never waits for the user to notice either way.
 """
 
 import json
@@ -44,7 +46,7 @@ def _clean_options(options: Any) -> List[Dict[str, str]]:
 
 def decisions_log(question: str, context: Optional[str] = None, options: Any = None,
                   recommendation: Optional[str] = None, impact: Optional[str] = None) -> str:
-    """Queue a fork-in-the-road decision for the user and ping them."""
+    """Queue a fork-in-the-road decision for the user and notify them per its urgency."""
     question, context = _clean(question), _clean(context)
     recommendation, impact = _clean(recommendation), _clean(impact)
     cleaned_options = _clean_options(options)
@@ -60,14 +62,17 @@ def decisions_log(question: str, context: Optional[str] = None, options: Any = N
             recommendation=recommendation, impact=impact)
     except ValueError as exc:
         return tool_error(str(exc), success=False)
-    ping = notify_pending_decision(record)
+    ping = deliver_decision_ping(record)
     if ping.get("sent"):
         message = f"Decision logged and pinged the user on {PING_PLATFORM}."
+    elif ping.get("queued"):
+        message = ("Decision logged and queued for the next batched proactive report "
+                   "(quiet hours respected) — it is also listed by /decisions right away.")
     else:
         message = (f"Decision logged. Ping not delivered ({ping.get('error', 'unknown')}) — "
                    "surface the decision and the answer options in your reply.")
     return json.dumps({"success": True, "decision": record, "pinged": bool(ping.get("sent")),
-                       "message": message}, ensure_ascii=False)
+                       "queued": bool(ping.get("queued")), "message": message}, ensure_ascii=False)
 
 
 def decisions_list(include_resolved: bool = False) -> str:
@@ -107,7 +112,7 @@ def decisions_resolve(decision_id: str, choice: str, rationale: Optional[str] = 
 
 
 def notify_pending_decision(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Best-effort ping that a decision awaits the user (PLAN.md § Decision surfacing).
+    """Best-effort immediate ping that a decision awaits the user (PLAN.md § Decision surfacing).
 
     Delivery follows the Phase 1 one-main-thread model: the profile's Telegram home
     channel (``send_message`` resolves it; a thread id is never part of the target) and
@@ -128,6 +133,29 @@ def notify_pending_decision(record: Dict[str, Any]) -> Dict[str, Any]:
     if result.get("success"):
         return {"sent": True}
     return {"sent": False, "error": str(result.get("error") or "send failed")}
+
+
+def deliver_decision_ping(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Escalation-aware notification for a fresh decision (PLAN.md § Phase 4).
+
+    The decision escalates on its ``impact`` field: WAKE tier (impact matches a configured
+    ``proactive.wake_patterns`` regex) sends the ping now — quiet hours or not — and WAIT
+    tier queues a one-line notice into the proactive outbox, flushed with the next batched
+    report. Either way the decision itself is logged and listed by ``/decisions``
+    immediately; a notification problem never fails the log.
+    """
+    from tools.proactive_store import (
+        WAKE_TIER, ProactiveStore, escalation_tier, proactive_settings,
+    )
+
+    tier = escalation_tier(record.get("impact", ""), proactive_settings().get("wake_patterns"))
+    if tier != WAKE_TIER:
+        try:
+            ProactiveStore().enqueue_notice("decision", DecisionsStore.format_queue_notice(record))
+            return {"queued": True}
+        except Exception:
+            logger.warning("decision notice queueing failed for %s", record.get("id"), exc_info=True)
+    return notify_pending_decision(record)
 
 
 def check_decisions_requirements() -> bool:

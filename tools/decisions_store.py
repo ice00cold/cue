@@ -38,6 +38,7 @@ MAX_IMPACT_CHARS = 800
 MAX_RESOLUTION_CHARS = 500
 MAX_RATIONALE_CHARS = 1500
 PING_MAX_CHARS = 3500  # under Telegram's 4096 hard limit, headroom for platform overhead
+MAX_QUEUE_NOTICE_CHARS = 400  # the batched report renders the queue; one headline per decision
 
 _ID_RE = re.compile(r"^d(\d+)$")
 
@@ -282,6 +283,16 @@ class DecisionsStore(LockedYamlStore):
         lines.append(f"Answer here or with /decisions answer {decision['id']} <number|choice> [rationale]")
         text = "\n".join(lines)
         return text if len(text) <= PING_MAX_CHARS else _cap(text, PING_MAX_CHARS)
+
+    @staticmethod
+    def format_queue_notice(decision: Dict[str, Any]) -> str:
+        """One-line notice for the proactive outbox (the batched report renders the queue,
+        so a decision there is a headline, not the full fork detail — ``/decisions`` has it)."""
+        line = f"decision [{decision['id']}] {decision['question']}"
+        if decision["recommendation"]:
+            line += f" — recommends: {decision['recommendation']}"
+        line += f" (/decisions show {decision['id']})"
+        return _cap(line, MAX_QUEUE_NOTICE_CHARS)
 
 
 def validate_decision_fields(*, question: str = "", context: str = "", options: Any = (),

@@ -1,5 +1,6 @@
 """Decisions tools through real registry dispatch: log/list/resolve roundtrips,
-validation and threat-scan refusals, and the Telegram ping contract."""
+validation and threat-scan refusals, and the escalation-aware ping contract
+(wake-tier impact pings now; wait-tier queues for the batched report)."""
 
 import json
 
@@ -45,7 +46,7 @@ class TestDispatch:
                                     {"label": "SQLite", "impact": "zero ops"}],
                            recommendation="Postgres", impact="blocks the queue refactor")
         assert result["success"], result
-        assert result["pinged"] is True
+        assert result["pinged"] is False and result["queued"] is True  # wait tier → batched
         decision_id = result["decision"]["id"]
 
         listed = _dispatch("decisions_list")
@@ -103,29 +104,50 @@ class TestThreatScan:
 
 
 class TestPing:
-    def test_ping_targets_the_telegram_home_channel_never_a_thread(self, home, sent_payloads):
-        result = _dispatch("decisions_log", question="Q?", options=["a", "b"])
-        assert result["success"] and result["pinged"] is True
+    def test_plain_decision_queues_for_the_batched_report(self, home, sent_payloads):
+        result = _dispatch("decisions_log", question="Which database for the job queue?",
+                           options=["Postgres", "SQLite"], recommendation="Postgres",
+                           impact="blocks the queue refactor")
+        assert result["success"], result
+        assert result["pinged"] is False and result["queued"] is True
+        assert sent_payloads["payloads"] == [], "no immediate send for a wait-tier decision"
+        assert "queued for the next batched proactive report" in result["message"]
+        # The queued notice is the one-line headline the batched report renders.
+        from tools.proactive_store import ProactiveStore
+
+        (notice,) = ProactiveStore(home).load()["outbox"]
+        assert notice["kind"] == "decision" and "[d1]" in notice["text"]
+        assert "/decisions show d1" in notice["text"]
+
+    def test_wake_tier_impact_pings_the_home_channel_now(self, home, sent_payloads):
+        result = _dispatch("decisions_log", question="Rotate the leaked key?",
+                           options=["now", "at midnight"],
+                           impact="security breach: the token leaked into a public log")
+        assert result["success"], result
+        assert result["pinged"] is True and result["queued"] is False
         (payload,) = sent_payloads["payloads"]
         assert payload["action"] == "send"
         # Home-channel target only: the Phase 1 model never addresses a chat or thread lane.
         assert payload["target"] == decisions_tool.PING_PLATFORM
-        assert "[d1]" in payload["message"] and "1. a" in payload["message"]
+        assert "[d1]" in payload["message"] and "1. now" in payload["message"]
         assert "/decisions answer d1" in payload["message"]
 
-    def test_ping_failure_does_not_fail_the_log(self, home, monkeypatch):
+    def test_wake_tier_ping_failure_does_not_fail_the_log(self, home, monkeypatch):
         monkeypatch.setattr("tools.send_message_tool.send_message_tool",
                             lambda args, **kw: json.dumps({"error": "No home channel set for telegram."}))
-        result = _dispatch("decisions_log", question="Q?", options=["a", "b"])
+        result = _dispatch("decisions_log", question="Outage?", options=["a", "b"],
+                           impact="urgent: production is down")
         assert result["success"], result
         assert result["pinged"] is False
         assert "not delivered" in result["message"]
 
-    def test_ping_raise_does_not_fail_the_log(self, home, monkeypatch):
-        def boom(args, **kw):
-            raise RuntimeError("gateway loop unavailable")
+    def test_wait_tier_queue_failure_falls_back_to_the_direct_ping(self, home, monkeypatch, sent_payloads):
+        def boom(*a, **kw):
+            raise RuntimeError("outbox write failed")
 
-        monkeypatch.setattr("tools.send_message_tool.send_message_tool", boom)
-        result = _dispatch("decisions_log", question="Q?", options=["a", "b"])
+        monkeypatch.setattr("tools.proactive_store.ProactiveStore.enqueue_notice", boom)
+        result = _dispatch("decisions_log", question="Q?", options=["a", "b"],
+                           impact="purely a preference call")
         assert result["success"], result
-        assert result["pinged"] is False
+        assert result["pinged"] is True  # queue broke: never lose the notification
+        assert len(sent_payloads["payloads"]) == 1
