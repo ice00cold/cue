@@ -11836,18 +11836,6 @@
             ],
             "default": null,
             "title": "Context From"
-          },
-          "attach_to_session": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Attach To Session"
           }
         },
         "required": [
