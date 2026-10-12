@@ -53,6 +53,28 @@ def profile_has_active_loop(profile_home: Path) -> bool:
     return _gate(profile_home, store_has_active_loop)
 
 
+def profile_has_proactive_work(profile_home: Path) -> bool:
+    """Cue's proactive loop gate: True when the profile holds an actionable goal (active with a
+    next action) OR queued proactive notices. File-scoped like the store it reads — no
+    SessionDB probe — and fail-open for the same reason (unavailable ≠ idle)."""
+    from tools.goals_store import GoalsStore
+    from tools.proactive_store import ProactiveStore
+
+    try:
+        if any(str(goal.get("next_action") or "").strip() for goal in GoalsStore(profile_home).active_goals()):
+            return True
+    except Exception:
+        logger.debug("proactive goals gate failed for %s; keeping the full sweep",
+                     profile_home, exc_info=True)
+        return True
+    try:
+        return bool(ProactiveStore(profile_home).load()["outbox"])
+    except Exception:
+        logger.debug("proactive outbox gate failed for %s; keeping the full sweep",
+                     profile_home, exc_info=True)
+        return True
+
+
 def profile_has_pending_handoff(profile_home: Path) -> bool:
     return _gate(profile_home, lambda db: db.has_pending_handoffs())
 
