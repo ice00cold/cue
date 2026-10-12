@@ -62,7 +62,7 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 
 ### Phase 3 — Decision queue
 - [x] Decisions store + tool
-- [ ] Telegram ping on new pending decision
+- [x] Telegram ping on new pending decision *(rides decisions_log: send_message to the profile's Telegram home channel, mirrored into the one main thread; never targets threads)*
 - [ ] `/decisions` command + resolution flow
 
 ### Phase 4 — Proactive loop
