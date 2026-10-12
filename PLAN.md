@@ -66,9 +66,9 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 - [x] `/decisions` command + resolution flow *(shared parser in hermes_cli/decision_command.py; CLI + gateway + TUI surfaces delegate; an answer resolves the record and enqueues the resume turn into the one main thread)*
 
 ### Phase 4 — Proactive loop
-- [ ] Heartbeat does autonomous goal work between conversations
-- [ ] Batched reporting (no spam), quiet hours respected
-- [ ] Escalation rules: what wakes the user vs what waits
+- [x] Heartbeat does autonomous goal work between conversations *(gateway/run_proactive.py: a supervised watcher per served profile picks next actions off goals.yaml — least-recently-picked first — and injects them as one ordinary turn in the idle main thread; busy/paused leaves the tick due; the reply is muted and queued as a batched notice)*
+- [x] Batched reporting (no spam), quiet hours respected *(tools/proactive_store.py: wait-tier notices queue in <home>/proactive.yaml and flush as ONE report per report_interval_minutes outside proactive.quiet_hours — reusing cron's suppression pattern, not a second scheduler; wake-tier never queues)*
+- [x] Escalation rules: what wakes the user vs what waits *(a logged decision escalates on its impact field: proactive.wake_patterns match → immediate ping, quiet hours or not; everything else waits for the batch; /decisions lists every fork immediately either way)*
 
 ### Phase 5 — OpenChamber + polish
 - [ ] Project lives in OpenChamber for dev (phone/desktop)
