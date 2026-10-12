@@ -1085,7 +1085,7 @@ class GatewayNotificationsMixin:
 
         Prefer the persisted session-store origin; the active foreground event causes cross-topic bleed.
         """
-        from gateway.run import _parse_session_key
+        from gateway.session import parse_session_key
         session_key = str(evt.get("session_key") or "").strip()
         derived = {}
         if session_key:
@@ -1099,7 +1099,7 @@ class GatewayNotificationsMixin:
             cached_source = self._get_cached_session_source(session_key)
             if cached_source is not None:
                 return cached_source
-            derived = _parse_session_key(session_key) or {}
+            derived = parse_session_key(session_key) or {}
         profile = derived.get("profile")
         platform_name = str(evt.get("platform") or derived.get("platform") or "").strip().lower()
         chat_type = str(evt.get("chat_type") or derived.get("chat_type") or "").strip().lower()
@@ -1753,10 +1753,10 @@ class GatewayNotificationsMixin:
         Such events only carry ``session_key`` (the daemon worker lacks per-message routing
         metadata). Best-effort: a CLI-origin event (empty session_key) is left as-is and won't route.
         """
-        from gateway.run import _parse_session_key
+        from gateway.session import parse_session_key
         if evt.get("platform"):
             return  # already enriched
-        parsed = _parse_session_key(evt.get("session_key", "") or "")
+        parsed = parse_session_key(evt.get("session_key", "") or "")
         if not parsed:
             return
         evt["platform"] = parsed.get("platform", "")
