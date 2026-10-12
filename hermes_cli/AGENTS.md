@@ -70,6 +70,10 @@ results, and schedule kickoff/continuation prompts. Async callers preserve Conte
 when running dispatch off-loop (drafting uses profile-scoped auxiliary credentials).
 Do not add a surface-specific goal parser. ACP has no goal command or goal loop yet.
 
+`hermes_cli/decision_command.py::dispatch_decision_command` owns `/decisions` likewise
+(queue in `<home>/decisions.yaml`); adapters resolve the store and enqueue the resume
+prompt. No surface-specific parser.
+
 ## Config system (`hermes_cli/config.py`)
 
 - **config.yaml option:** add to `DEFAULT_CONFIG`. Bump `_config_version` ONLY to actively

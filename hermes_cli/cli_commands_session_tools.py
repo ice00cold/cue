@@ -253,6 +253,19 @@ class CLICommandsSessionToolsMixin:
         if _remainder:
             _cprint(f"  {_DIM}{_t('image.now_type_prompt', text=_remainder)}{_RST}")
 
+    # ---- /decisions -----------------------------------------------------------------------
+    def _handle_decisions_command(self, cmd: str) -> None:
+        """Handle /decisions — the pending-decision queue (list, show, answer, withdraw).
+        An answer resolves the record with its rationale and queues the resume turn."""
+        from hermes_cli.decision_command import dispatch_decision_command
+        from tools.decisions_store import DecisionsStore
+
+        result = dispatch_decision_command(DecisionsStore(), _command_arg(cmd))
+        for line in result.output.splitlines():
+            _cp(f"  {line}")
+        if result.resume_prompt and self._kick_goal(result.resume_prompt):
+            _cp(_dim_line("Queued — the agent resumes in this thread."))
+
     # ---- /tools, /profile -----------------------------------------------------------------
     def _handle_tools_command(self, cmd: str):
         """Handle /tools [list|disable|enable]. Bare shows the tool list; ``list`` shows per-toolset

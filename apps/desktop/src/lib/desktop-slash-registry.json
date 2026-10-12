@@ -24,6 +24,7 @@
   "/ctx": null,
   "/curator": "advanced",
   "/debug": null,
+  "/decisions": null,
   "/deny": "messaging",
   "/diff": null,
   "/egress": null,
