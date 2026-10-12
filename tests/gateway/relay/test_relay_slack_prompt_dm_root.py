@@ -361,7 +361,7 @@ def test_top_level_dm_gets_session_thread_stamp():
     assert ev.source.thread_id == "1700.0100"
 
 
-def test_two_top_level_messages_key_distinct_sessions():
+def test_two_top_level_messages_share_the_main_thread_session():
     from gateway.session import build_session_key
     adapter, _ = _wire("D1", "dm")
     e1 = _inbound_event(message_id="1700.0100")
@@ -370,7 +370,9 @@ def test_two_top_level_messages_key_distinct_sessions():
     adapter._stamp_slack_session_thread(e2)
     k1 = build_session_key(e1.source)
     k2 = build_session_key(e2.source)
-    assert k1 != k2, "each top-level message must be its own session"
+    # Cue: one main thread — top-level messages share the conversation (the per-message thread
+    # stamp still rides the source for DELIVERY/reply routing, not for session keying).
+    assert k1 == k2 == "agent:main:main-thread"
 
 
 def test_real_thread_reply_keeps_its_thread_session():

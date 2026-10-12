@@ -355,7 +355,6 @@ DESTRUCTIVE_UPDATE_ARGS = {
     "context_from": [],
     "enabled_toolsets": [],
     "workdir": "",
-    "attach_to_session": False,
 }
 
 def _cronjob(**kwargs):

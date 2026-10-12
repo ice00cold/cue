@@ -689,11 +689,13 @@ DEFAULT_CONFIG = {
         # scope it to one route ({"openai-codex:astra": 0.85} leaves Astra on OpenRouter/Nous at the
         # global value). The <512K floor (0.75) still applies raise-only on top.
         "model_thresholds": {},
-        # Opt-in idle compaction (0 = off): a session resuming after this many idle seconds compacts
-        # up front, before the first reply. Time-based complement to `threshold`; skipped when
-        # already at/below threshold × target_ratio; honors the same cooldown/ anti-thrash/lock
-        # guards. Example: 1800 = 30 min.
-        "idle_compact_after_seconds": 0,
+        # Idle compaction: a session resuming after this many idle seconds compacts up front,
+        # before the first reply. Cue tunes this on (30 min): an idle gap is the natural
+        # topic-end signal in the one-main-thread model, so the finished topic folds away
+        # before the next one starts instead of riding the threshold later. Time-based
+        # complement to `threshold`; skipped when already at/below threshold × target_ratio;
+        # honors the same cooldown/anti-thrash/lock guards. 0 = off.
+        "idle_compact_after_seconds": 1800,
     },
     # Anthropic prompt caching (Claude via OpenRouter or native API). cache_ttl: "5m" | "1h" | "auto"
     # (auto = 1h for human-paced sessions — cli/tui/desktop/messaging — and 5m for subagent, cron,
@@ -1844,14 +1846,6 @@ DEFAULT_CONFIG = {
             # silent, no-push deliveries.
             "notify": True,
         },
-        # Make cron deliveries CONTINUABLE (user can reply to a brief with it in context). False
-        # keeps deliveries isolated to the job's session; per-job `attach_to_session` overrides.
-        # Thread-capable platforms (Telegram topics, Discord/Slack threads) get a seeded thread per
-        # job via create_handoff_thread; DM-only platforms mirror the brief into the target DM
-        # session. Appended at a turn boundary via mirror_to_session, cached system prompt
-        # untouched. User-written bare platforms address home conversations, unlike `all`
-        # broadcast expansions, which do not gain mirror eligibility.
-        "mirror_delivery": False,
         # Max due jobs run in parallel per tick. None/0 = unbounded (thread count only); 1 = serial.
         # Env override: HERMES_CRON_MAX_PARALLEL.
         "max_parallel_jobs": None,

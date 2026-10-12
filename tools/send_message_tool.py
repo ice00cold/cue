@@ -419,14 +419,14 @@ def _slack_dm_chat_id(pconfig, chat_id):
 
 
 def _mirror_sent_message(platform_name, chat_id, mirror_text, thread_id):
-    """Best-effort mirror of the sent message into the target's gateway session."""
+    """Best-effort mirror of the sent message into the main thread's transcript (any target chat
+    is a window into the same conversation)."""
     try:
         from gateway.mirror import mirror_to_session
         from gateway.session_context import get_session_env
         return bool(mirror_to_session(
-            platform_name, chat_id, mirror_text, thread_id=thread_id,
-            source_label=get_session_env("HERMES_SESSION_PLATFORM", "cli"),
-            user_id=get_session_env("HERMES_SESSION_USER_ID", "") or None))
+            mirror_text,
+            source_label=get_session_env("HERMES_SESSION_PLATFORM", "cli")))
     except Exception:
         return False
 

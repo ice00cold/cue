@@ -297,12 +297,6 @@ def build_sessions_parser(subparsers, *, cmd_sessions: Callable) -> None:
     sessions_retitle.add_argument(
         "--limit", type=int, default=200, help="Maximum sessions to examine (default: 200)")
 
-    sessions_browse = sessions_subparsers.add_parser(
-        "browse", help="Interactive session picker — browse, search, and resume sessions")
-    sessions_browse.add_argument("--source", help="Filter by source (cli, telegram, discord, etc.)")
-    sessions_browse.add_argument(
-        "--limit", type=int, default=500, help="Max sessions to load (default: 500)")
-
     sessions_import = sessions_subparsers.add_parser(
         "import", help="Import a Claude Code or Codex CLI session into Hermes",
         description="Pull a conversation started in Claude Code (~/.claude/projects) "

@@ -13,9 +13,13 @@ def stamp_origin_discriminators(t: Any, route_metadata: dict, media_metadata: di
     the origin's author); ``setdefault`` never overrides router or home stamping; ``user_id`` is read by
     relay transports only.
     """
+    origin = t.origin or {}
+    is_origin_target = (
+        str(origin.get("platform") or "").lower() == str(t.platform_name).lower()
+        and str(origin.get("chat_id") or "") == str(t.chat_id))
     discriminators = (
-        ("scope_id", t.origin.get("scope_id") if t.origin_target else None),
-        ("user_id", t.origin_user_id if t.is_relay else None),
+        ("scope_id", origin.get("scope_id") if is_origin_target else None),
+        ("user_id", t.origin_user_id if is_origin_target and t.is_relay else None),
     )
     for key, value in discriminators:
         if value:

@@ -144,11 +144,11 @@ def test_standalone_gateway_persists_nothing_and_keys_stay_agent_main(tmp_path, 
     source = solo.primary.build_source(chat_id="4040", chat_type="dm", user_id="4040")
     resolve_identity(source, runner=solo.runner)
     entry = store.get_or_create_session(source)
-    assert entry.session_key == "agent:main:telegram:dm:4040"
+    assert entry.session_key == "agent:main:main-thread"
     assert entry.transport_profile is None and "transport_profile" not in entry.to_dict()
     assert store._db_for_key(entry.session_key).get_session(entry.session_id)["transport_profile"] is None
     fresh = _runner(home, multiplex=False)
     restored = fresh.runner._restored_source(SessionEntry.from_dict(entry.to_dict()))
     assert identity_of(restored) is None
     assert fresh.runner._delivery_adapter_for(restored) is fresh.primary
-    assert fresh.runner._session_key_for_source(restored) == "agent:main:telegram:dm:4040"
+    assert fresh.runner._session_key_for_source(restored) == "agent:main:main-thread"

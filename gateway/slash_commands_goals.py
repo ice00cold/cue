@@ -39,7 +39,8 @@ class GatewayGoalCommandsMixin:
             return t("gateway.goal.unavailable")
 
         def authorize_gate():
-            if not self._resume_caller_is_admin(event.source):
+            from gateway.slash_access import explicitly_configured_admin
+            if not explicitly_configured_admin(self, event.source):
                 return t("gateway.goal.gate_add_admin_only")
             return None
 

@@ -8,12 +8,15 @@ inside each method (``from cli import ...``) — never at module load time (impo
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import shutil
 import sys
 
 from agent.i18n import t
 from hermes_constants import get_hermes_home
+
+logger = logging.getLogger(__name__)
 from hermes_state_ids import new_session_id
 from pathlib import Path
 from rich.console import Console
@@ -62,8 +65,7 @@ def _dim_notice(cli, msg: str, quiet: bool) -> None:
 def _reset_model_to_config_default(cli, silent: bool) -> None:
     """/new is a full boundary: re-derive model/provider from config.yaml so a
     session-only ``/model --session`` switch never leaks into the next session.
-    Best-effort — an unreachable default must never block /new. Module-level helper (like
-    ``_apply_new_session_title``): tests drive ``new_session`` unbound on a SimpleNamespace."""
+    Best-effort — an unreachable default must never block /new. Module-level helper: tests drive ``new_session`` unbound on a SimpleNamespace."""
     from cli import CLI_CONFIG, _cprint, _split_model_config_default, logger
     _model_config = CLI_CONFIG.get("model", {})
     if isinstance(_model_config, dict):
@@ -107,30 +109,6 @@ def _reset_model_to_config_default(cli, silent: bool) -> None:
             _cprint(f"  {t('cli.session.model_reset_default', model=r.new_model)}")
     except Exception:
         logger.debug("/new model reset to config default failed", exc_info=True)
-
-
-def _apply_new_session_title(cli, title: str) -> Optional[str]:
-    """Sanitize + persist a /new title; returns the stored title or None (untitled)."""
-    from cli import _cprint
-    from hermes_state import SessionDB
-    try:
-        sanitized = SessionDB.sanitize_title(title)
-    except ValueError as e:
-        _cprint(f"  {t('cli.session.title_rejected', error=e)}")
-        return None
-    if not sanitized:
-        _cprint(f"  {t('cli.session.title_empty_untitled')}")
-        return None
-    try:
-        cli._session_db.set_session_title(cli.session_id, sanitized)
-    except ValueError as e:
-        _cprint(f"  {t('cli.session.title_error_untitled', error=e)}")
-        return None
-    except Exception:
-        return None
-    cli._pending_title = None
-    cli._status_bar_title_checked_at = 0.0
-    return sanitized
 
 
 class CLISessionMixin:
@@ -484,56 +462,89 @@ class CLISessionMixin:
             return None
         return history_snapshot
 
+    def _rotate_topic(self, title: Optional[str] = None) -> None:
+        """/new: rotate the current topic. Archive + aggressive partial compression into the
+        conversation's own summary (the ONE sanctioned cache break), write the topic artifact,
+        install the compacted history — the session id NEVER changes."""
+        from agent.context_rotation import MIN_ROTATE_MESSAGES, rotate_topic, render_rotation_result
+        from agent.conversation_compression import finalize_context_engine_compression_notification
+
+        if len(self.conversation_history or ()) < MIN_ROTATE_MESSAGES:
+            print(f"  (._.) Nothing to rotate yet — the conversation is still short.")
+            return
+        if not self.agent:
+            print("  (._-) No agent yet — say something first.")
+            return
+        # A topic boundary flushes pending turns so rotation sees the whole topic.
+        if self._session_db and self.agent:
+            with contextlib.suppress(Exception):
+                self.agent._flush_messages_to_session_db(
+                    self.conversation_history, conversation_history=self.conversation_history)
+        original_count = len(self.conversation_history)
+        with self._busy_command(f"Rotating topic ({original_count} messages)…", blocks_input=False):
+            try:
+                result = rotate_topic(self.agent, self.conversation_history, title=title,
+                                      task_id=self.session_id or "default")
+                for line in render_rotation_result(result, prefix="  "):
+                    print(line)
+                if result.status != "rotated":
+                    return
+                self.conversation_history = result.after_messages
+                # In-place compaction keeps the session id; a rotated child would have ended it.
+                agent_sid = getattr(self.agent, "session_id", None)
+                if agent_sid and agent_sid != self.session_id:
+                    self.session_id = self.agent.session_id
+                    self._write_terminal_breadcrumb()
+                finalize_context_engine_compression_notification(self.agent, committed=True)
+            except Exception as e:
+                finalize_context_engine_compression_notification(self.agent, committed=False)
+                logger.warning("Topic rotation failed", exc_info=True)
+                print(f"  Topic rotation failed: {e}")
+
     def new_session(self, silent=False, title=None):
-        """Start a fresh session with a new session ID and cleared agent state."""
+        """Reset the conversation's in-memory state and rebuild the agent — Cue: the session id
+        NEVER changes (one main thread). Callers are context-shape changes (toolset toggle,
+        browser-use mode, voice wake): the system prompt must be rebuilt, which is the one
+        sanctioned reason to clear live history, but the relationship keeps its transcript."""
         from cli import (
             CLI_CONFIG, _parse_service_tier_config,
             _sync_process_session_id, datetime)
         from hermes_cli.cli_model_switch_mixin import _resolve_cli_reasoning
         old_session_id = self.session_id
-        _boundary_snapshot = None
         if self.agent:
             if self.conversation_history:
-                # Context-engine boundary now; provider extraction is queued below (after
-                # rotation) so /new never blocks on the LLM-bound call.
-                _boundary_snapshot = self._launch_session_boundary_memory_flush(
+                # Context-engine boundary + queued provider extraction; the reset never blocks
+                # on the LLM-bound call.
+                self._launch_session_boundary_memory_flush(
                     list(self.conversation_history), session_id=old_session_id)
             self._notify_session_boundary("on_session_finalize")
 
-        if self._session_db and old_session_id:
-            # /new can arrive mid-turn before _flush_messages_to_session_db() ran — flush
-            # the current turn to the OLD session before rotating or it is silently lost.
-            if self.agent:
-                with contextlib.suppress(Exception):
-                    # Flush any un-persisted messages from the current turn to the old session *before*
-                    # rotating.  /new can be called mid-turn when _flush_messages_to_session_db() has not
-                    # yet run — without this, messages generated during the current turn are silently lost
-                    # on session rotation (#47202).
-                    # See #47202.
-                    # See #47202.
-                    self.agent._flush_messages_to_session_db(
-                        self.conversation_history, conversation_history=self.conversation_history)
+        if self._session_db and old_session_id and self.agent:
+            # The reset can arrive mid-turn before _flush_messages_to_session_db() ran — flush
+            # the current turn before clearing or it is silently lost (#47202). The session row
+            # itself is NEVER ended: the conversation continues under the same id.
             with contextlib.suppress(Exception):
-                self._session_db.end_session(old_session_id, "new_session")
-            self._discard_session_if_empty(old_session_id)
+                self.agent._flush_messages_to_session_db(
+                    self.conversation_history, conversation_history=self.conversation_history)
 
         self.session_start = datetime.now()
-        self.session_id = new_session_id(self.session_start)
+        # One main thread: keep self.session_id — the routing entry, transcript and agent cache
+        # all keep the conversation's identity; only the live context resets.
         # getattr: tests drive new_session unbound against a SimpleNamespace stand-in.
         getattr(self, "_write_terminal_breadcrumb", lambda: None)()
         self.conversation_history = []
         self._pending_title = None
         self._resumed = False
-        # An explicit -m/--model was for the previous session only.
+        # An explicit -m/--model was for the previous context only.
         self._explicit_model_override = False
         # Session-scoped overrides (/model --session, /fast, one-turn restores) don't carry over.
         # Re-derive model/provider and service tier from config.yaml so a session-only switch never leaks
-        # into the next session (#48055, #23131).
+        # into the next context (#48055, #23131).
         self._pending_one_turn_model_restore = None
         self.service_tier = _parse_service_tier_config(CLI_CONFIG["agent"].get("service_tier", ""))
         _reset_model_to_config_default(self, silent)
-        # After the model reset: the effort belongs to the model the fresh session lands on (a /reasoning
-        # session override is dropped, the default model's per-model override is kept).
+        # After the model reset: the effort belongs to the model the fresh context lands on (a
+        # /reasoning session override is dropped, the default model's per-model override is kept).
         _resolve_cli_reasoning(self)
         _sync_process_session_id(self.session_id)
 
@@ -554,65 +565,18 @@ class CLISessionMixin:
             if self._session_db:
                 with contextlib.suppress(Exception):
                     self.agent._session_db_created = False
-                    self._session_db.create_session(
-                        session_id=self.session_id,
+                    self._session_db.ensure_session(
+                        self.session_id,
                         source=os.environ.get("HERMES_SESSION_SOURCE", "cli"),
-                        model=self.model,
-                        model_config={
-                            "max_iterations": self.max_turns, "reasoning_config": self.reasoning_config,
-                        })
+                        model=self.model)
                     self.agent._session_db_created = True
-                if title:
-                    title = _apply_new_session_title(self, title)
-            # Tell memory providers the session_id rotated (reset=True flushes per-session
-            # state) BEFORE the plugin on_session_reset hook. With old history, end-of-session
-            # extraction and this switch are queued as ONE task on the serialized worker —
-            # end strictly before switch, without blocking /new. No history → switch inline.
-            _mm = getattr(self.agent, "_memory_manager", None)
-            with contextlib.suppress(Exception):
-                if _mm is not None and _boundary_snapshot:
-                    _mm.commit_session_boundary_async(
-                        _boundary_snapshot, new_session_id=self.session_id,
-                        parent_session_id=old_session_id or "", reason="new_session")
-                elif _mm is not None:
-                    _mm.on_session_switch(
-                        self.session_id, parent_session_id=old_session_id or "",
-                        reset=True, reason="new_session")
+            # Same-session context reset: memory providers keep their state (no id rotation to
+            # switch to); only the plugin on_session_reset hook fires.
             self._notify_session_boundary("on_session_reset")
 
         if not silent:
-            if title:
-                print(t("cli.session.new_session_titled", title=title))
-            else:
-                print(t("cli.session.new_session"))
+            print(t("cli.session.context_reset"))
 
-    def _consume_pending_resume_selection(self, text: str) -> bool:
-        """Resolve a bare numeric reply following a bare ``/resume`` prompt.
-
-        ``/resume`` (no args) arms ``self._pending_resume_sessions``; the next input gets one
-        chance to be a bare session number. The pending state is one-shot — cleared on the
-        first input regardless of outcome, so a stray later number is never hijacked.
-        Returns True if the input was consumed (caller must not treat it as chat).
-
-        See #34584.
-        """
-        from cli import _cprint
-        pending = self._pending_resume_sessions
-        if not pending:
-            return False
-        self._pending_resume_sessions = None
-        if not isinstance(text, str):
-            return False
-        # Only a pure number selects; "/resume 3", titles etc. fall through.
-        if not text.strip().isdigit():
-            return False
-        index = int(text.strip())
-        if not 1 <= index <= len(pending):
-            _cprint(f"  {t('cli.session.resume_index_out_of_range', index=index)}")
-            _cprint(f"  {t('cli.session.resume_no_args_hint')}")
-            return True
-        self._handle_resume_command(f"/resume {index}")
-        return True
 
     def save_conversation(self, cmd: str = "/save"):
         """Handle ``/save [json|md|html] [filename] [redact]``.

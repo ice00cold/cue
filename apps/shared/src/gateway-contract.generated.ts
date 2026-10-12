@@ -3933,7 +3933,6 @@ export interface CronJobRow {
   enabled_toolsets?: string[] | null
   continuity?: boolean | null
   context_from?: string[] | null
-  attach_to_session?: boolean | null
   [key: string]: unknown
 }
 export interface CronRemovedJob {

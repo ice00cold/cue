@@ -2603,6 +2603,7 @@ cli:
     history_tool_calls_other: "(requested {count} tool calls)"
     new_session_titled: "(^_^)v New session started: {title}"
     new_session: "(^_^)v New session started!"
+    context_reset: "(^_^)v Context reset — same conversation, fresh context."
     resume_index_out_of_range: "Resume index {index} is out of range."
     resume_no_args_hint: "Use /resume with no arguments to see available sessions."
     save_nothing: "(;_;) No conversation to save."

@@ -4,8 +4,9 @@ or any gateway platform). Routes live under platforms.webhook.extra.routes: even
 secret (REQUIRED; "INSECURE_NO_AUTH" skips validation, loopback only), prompt template, skills,
 deliver/deliver_extra, deliver_only (rendered prompt IS the message), cron_job (fire an existing cron
 job per event; the rendered prompt is transient per-run context; exclusive with deliver_only), mirror_to_session
-(opt-in: a delivered response is also written into the target chat's transcript so follow-ups there have
-context). Per-route rate limiting,
+(deliver_only routes: the delivered payload is also written into the main thread's transcript so
+follow-ups have context). Cue: agent runs land in the profile's ONE main-thread session — there is no
+per-delivery session to close. Per-route rate limiting,
 idempotency cache, body-size caps checked before reading. Generic HMAC V2 binds a timestamp for
 replay protection; body-only V1 is deprecated but accepted with a warning."""
 
@@ -144,17 +145,6 @@ def _is_known_platform(name: str) -> bool:
 
 def _json_error(message: str, status: int) -> "web.Response":
     return web.json_response({"error": message}, status=status)
-
-
-def _peek_session_id(store, session_key: str):
-    """Prefer the store's lock-held accessor; the private-path fallback is for older stores / test doubles."""
-    if callable(peek := getattr(store, "peek_session_id", None)):
-        return peek(session_key)
-    if hasattr(store, "_ensure_loaded"):
-        with suppress(Exception):
-            store._ensure_loaded()
-    entry = (getattr(store, "_entries", {}) or {}).get(session_key)
-    return getattr(entry, "session_id", None) if entry else None
 
 
 def check_webhook_requirements() -> bool:
@@ -718,8 +708,7 @@ class WebhookAdapter(BasePlatformAdapter):
         self._delivery_info[session_chat_id] = {
             "deliver": route_config.get("deliver", "log"), "profile": profile,
             "deliver_extra": self._render_delivery_extra(route_config.get("deliver_extra", {}), payload),
-            "route": route_name,
-            "mirror": route_config.get("mirror_to_session") is True}
+            "route": route_name}
         self._delivery_info_created[session_chat_id] = now
         self._delivery_info_order.append((now, session_chat_id))
         self._prune_delivery_info(now)
@@ -729,40 +718,13 @@ class WebhookAdapter(BasePlatformAdapter):
             source.profile = profile
         event = MessageEvent(text=prompt, message_type=MessageType.TEXT, source=source, raw_message=payload,
                              message_id=delivery_id)
-        # The per-delivery session is closed by ``on_processing_complete`` once the run finishes
-        # (``handle_message`` is fire-and-forget, so nothing can be closed here).
+        # Cue: the run lands in the profile's ONE main-thread session (every chat maps there) and
+        # must NOT be closed afterwards — the conversation continues. The per-delivery chat_id only
+        # keys reply egress (``_delivery_info``), never a session of its own.
         task = asyncio.create_task(self.handle_message(event))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         return task
-
-    async def on_processing_complete(self, event: "MessageEvent", outcome: Any) -> None:
-        """Close the one-shot per-delivery session: ``prune_sessions`` only reaps rows with ``ended_at`` set, so
-        unclosed webhook sessions leak unbounded. Fires at the true end of the run; ``end_session()`` is
-        first-reason-wins."""
-        await self._end_webhook_session(event, event.source.chat_id)
-
-    async def _end_webhook_session(self, event: "MessageEvent", session_chat_id: str) -> None:
-        """Mark the per-delivery session ended via ``SessionDB.end_session`` (never a hand-written UPDATE),
-        resolving session_id from the SAME source the run was keyed on."""
-        runner = self.gateway_runner
-        session_db, store = getattr(runner, "_session_db", None), getattr(runner, "session_store", None)
-        key_fn = getattr(runner, "_session_key_for_source", None)
-        if runner is None or session_db is None or store is None or key_fn is None:
-            return
-        try:
-            session_key = key_fn(event.source)
-            session_id = _peek_session_id(store, session_key)
-            if not session_id:
-                logger.debug("[webhook] No session_id to close for %s (key=%s)", session_chat_id, session_key)
-                return
-            # AsyncSessionDB forwards end_session via to_thread; plain SessionDB is sync.
-            result = session_db.end_session(session_id, "webhook_complete")
-            if asyncio.iscoroutine(result):
-                await result
-            logger.debug("[webhook] Closed session %s for delivery %s", session_id, session_chat_id)
-        except Exception as e:
-            logger.debug("[webhook] Failed to close session for %s: %s", session_chat_id, e)
 
     # --- Signature validation ---
 
@@ -956,27 +918,22 @@ class WebhookAdapter(BasePlatformAdapter):
 
     def _mirror_delivery(self, platform_name: str, chat_id: str, content: str, delivery: dict,
                          thread_id: Optional[str]) -> None:
-        """Best-effort mirror of a delivered response into the TARGET chat's session transcript, so a
-        follow-up there ("so he's out?") sees what the webhook run just told the user. Without this the
-        text only lives in the ephemeral opaque per-delivery webhook session and the target chat's
-        agent has no idea it sent anything. Same path and USER-role convention as cron briefs
-        (``cron.scheduler_delivery._maybe_mirror_cron_delivery``, #2221): the text is not the target
-        session's agent speaking, and a labelled user turn merges safely on strict-alternation providers.
-        Opt-in per route (``mirror_to_session: true``), default off like cron's ``mirror_delivery``: the text
-        lands with user authority in a chat the route author may not own, and on ``deliver_only`` routes it is
-        the raw rendered payload. Called inside the routed profile's scope so the lookup hits THAT profile's
-        state.db — a DM chat_id is the user's id on every bot, so an unscoped mirror lands in another
-        profile's DM with the same person. Never raises — a delivered message must not be reported failed
-        because the mirror broke."""
+        """Best-effort mirror of a ``deliver_only`` payload into the main thread's transcript, so a
+        follow-up ("so he's out?") sees what the route just sent the user. Agent-run routes need no
+        mirror: the run itself already happened in the main thread. USER-role convention (#2221):
+        the raw rendered payload is not the agent speaking, and a labelled user turn merges safely
+        on strict-alternation providers. Opt-in per route (``mirror_to_session: true``). Called
+        inside the routed profile's scope so the lookup hits THAT profile's state.db. Never
+        raises — a delivered message must not be reported failed because the mirror broke."""
         if delivery.get("mirror") is not True:
             return
         route = delivery.get("route") or "webhook"
         try:
             from gateway.mirror import mirror_to_session
-            ok = mirror_to_session(platform_name, chat_id, f"[Webhook delivery: {route}]\n{content}",
-                                   source_label="webhook", thread_id=thread_id, role="user")
+            ok = mirror_to_session(f"[Webhook delivery: {route}]\n{content}",
+                                   source_label="webhook", role="user")
             logger.log(logging.INFO if ok else logging.DEBUG,
-                       "[webhook] Route '%s' delivery %smirrored into %s:%s session", route, "" if ok else "not ",
+                       "[webhook] Route '%s' delivery %smirrored into %s:%s", route, "" if ok else "not ",
                        platform_name, chat_id)
         except Exception as e:
             logger.debug("[webhook] Route '%s' delivery mirror into %s:%s failed: %s", route, platform_name, chat_id, e)

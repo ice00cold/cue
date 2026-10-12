@@ -144,17 +144,21 @@ def _sent_texts(adapter) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_gateway_new_sends_finalize_message_to_owning_chat(finalize_hook):
+async def test_gateway_new_rotation_ends_nothing_and_sends_no_finalize(finalize_hook):
+    """Cue: /new rotates the topic in the SAME session — no session ends, so no finalize
+    digest is owed to any chat. The finalize machinery itself is covered by the shutdown test."""
     from gateway.platforms.event import MessageEvent
 
     runner, adapter, source, _key = _gateway_runner()
+    # Rotation stops before agent construction when no provider is configured.
+    runner._resolve_session_agent_runtime = lambda **_kw: ("", {"api_key": None})
+    runner._resolve_session_reasoning_config = lambda **_kw: None
 
-    reply = await runner._handle_reset_command(MessageEvent(text="/new", source=source, message_id="m1"))
+    reply = await runner._handle_new_command(MessageEvent(text="/new", source=source, message_id="m1"))
 
-    assert finalize_hook[0]["session_id"] == "sess-1"
-    assert DIGEST in _sent_texts(adapter)
-    assert adapter.send.await_args_list[_sent_texts(adapter).index(DIGEST)].args[0] == "c1"
-    assert DIGEST not in str(reply)  # a separate notice, not folded into the /new banner
+    assert finalize_hook == []  # nothing ended
+    assert DIGEST not in _sent_texts(adapter)
+    assert DIGEST not in str(reply)
 
 
 @pytest.mark.asyncio
