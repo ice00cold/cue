@@ -71,7 +71,7 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 - [x] Escalation rules: what wakes the user vs what waits *(a logged decision escalates on its impact field: proactive.wake_patterns match → immediate ping, quiet hours or not; everything else waits for the batch; /decisions lists every fork immediately either way)*
 
 ### Phase 5 — OpenChamber + polish
-- [ ] Project lives in OpenChamber for dev (phone/desktop)
+- [x] Project lives in OpenChamber for dev (phone/desktop) *(de facto since Phase 2: every phase built by an agent in an OpenChamber-native worktree, orchestrated from the Cue Telegram thread; sessions group as worktree nodes under the cue project)*
 - [ ] Optional: OpenChamber as a front-end for the main thread (agent-tool/relay investigation)
 
 ## Open decisions
