@@ -85,10 +85,14 @@ Hardening invariants — each guards a real failure; don't weaken without answer
   post-restore re-exec must replay the whole worker, never land after the ack with the payload
   gone and no dependency boot.
 - Cron sessions pass `skip_memory=True`; memory providers intentionally do not run during cron.
-- Cron execution has its own session. Eligible continuable deliveries may mirror or seed the
-  reply-facing conversation: origin, origin-less home fallback, user-written bare-platform home,
-  or opted-in explicit targets. `all` expansions do not gain home mirror eligibility. Mirrored
-  briefs are labelled user turns appended at a turn boundary, preserving role alternation.
+- **Cron runs land in the profile's ONE main thread** (Cue). The fire's prompt and response append
+  to the persistent main-session transcript under the durable cross-process turn lease
+  (`cron/main_thread.py::ensure_main_thread_session` resolves or mints the row; the by-key
+  recovery lookup in `hermes_state_gateway.py` adopts it from whichever process minted it). The
+  session is never titled or ended (`_finalize_cron_session(persistent=True)` disarms the agent's
+  row-finalization instead). Delivery is pure egress: the report is sent to the origin chat
+  (platform + chat_id only — origins never carry a thread lane), and no reply-side session is
+  seeded or mirrored: every follow-up lands in the same main thread the fire appended to.
 - The cron ticker runs in the desktop-spawned backend when `HERMES_DESKTOP=1` — that env var means
   "spawned by the app", not "a GUI is watching" (root: capability is a property of the session).
 - Background `delegate_task` is process-local; work that must survive restarts is a cron job or a

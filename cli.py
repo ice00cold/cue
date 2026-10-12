@@ -1192,16 +1192,6 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
                 session_key=getattr(self, "session_id", None), platform="cli",
             )
 
-        # A bare `/resume` prompt is one-shot: any other command disarms it so a later
-        # number isn't swallowed as a stale selection.
-        # See #34584.
-        if canonical not in {"resume", "sessions"}:
-            # Armed when a bare `/resume` prints the recent-sessions list so the very next bare numeric
-            # input (e.g. `3`) resolves to that session. Holds the exact list used for index resolution;
-            # one-shot (cleared on the next submitted input, whether it's the selection or anything else).
-            # See #34584.
-            self._pending_resume_sessions = None
-
         entry = self._slash_handler(canonical)
         if entry is None:
             return self._process_unregistered_slash(cmd_original, cmd_lower)

@@ -48,11 +48,11 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 - [x] Push: `origin` = `ice00cold/cue` (fork live, all branches, push auth verified — 2026-10-08; transfer to af-claw later if wanted)
 
 ### Phase 1 — One main thread
-- [ ] Gateway: map all chats/platforms → single persistent session ID
-- [ ] Disable/hide session-per-chat UX (`/new`, `/resume`, session pickers)
-- [ ] Cron + webhook delivery → main thread (no more thread_id targeting)
-- [ ] Context rotation: topic-end compression → artifacts; tune compression thresholds
-- [ ] Rolling transcript archive for search
+- [x] Gateway: map all chats/platforms → single persistent session ID
+- [x] Disable/hide session-per-chat UX (`/new`, `/resume`, session pickers)
+- [x] Cron + webhook delivery → main thread (no more thread_id targeting)
+- [x] Context rotation: topic-end compression → artifacts; tune compression thresholds
+- [x] Rolling transcript archive for search
 
 ### Phase 2 — Goals subsystem
 - [ ] Goals state store + tools (`goals_read`, `goals_update`, `goals_review`)
@@ -77,6 +77,7 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 ## Open decisions
 1. **Name** — working name `cue` (matches the proactive-AI concept). Rename = `mv` + rebrand + fork name.
 2. **Cross-platform main thread** — recommend ONE shared session across all platforms. Alternative: one main thread per platform (Telegram thread ≠ CLI thread).
+   *Resolved by Phase 1 (2026-10-08): the recommendation was implemented — every platform/chat keys into the profile's single `agent:<ns>:main-thread` session.*
 3. **Subagents/delegation** — keep (they're workers, not threads). Confirm.
 
 ## Gotchas

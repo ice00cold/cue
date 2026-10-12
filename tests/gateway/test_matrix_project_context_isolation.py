@@ -169,7 +169,9 @@ async def test_matrix_project_context_survives_concurrent_messages():
     assert observed_b.chat_id == PROJECT_B_ROOM_ID
     assert observed_a.chat_name == PROJECT_A_NAME
     assert observed_b.chat_name == PROJECT_B_NAME
-    assert observed_a.session_key != observed_b.session_key
+    # Cue: one main thread — both rooms are windows into the same conversation key; the room
+    # identity rides the source/session env, not the session.
+    assert observed_a.session_key == observed_b.session_key == "agent:main:main-thread"
 
 
 @pytest.mark.asyncio
@@ -214,7 +216,7 @@ async def test_matrix_inbound_handler_keeps_project_a_and_b_distinct():
         PROJECT_A_NAME,
         PROJECT_B_NAME,
     ]
-    assert build_session_key(captured[0].source) != build_session_key(captured[1].source)
+    assert build_session_key(captured[0].source) == build_session_key(captured[1].source)
 
 
 def _make_matrix_source(room_id: str, room_name: str, topic: str) -> SessionSource:
@@ -300,43 +302,5 @@ async def test_matrix_status_reports_current_matrix_room_scope():
     assert "session_key: sha256:" in result
     assert PROJECT_A_NAME not in result
     assert PROJECT_A_ROOM_ID not in result
-
-
-@pytest.mark.asyncio
-async def test_matrix_resume_quoted_title_same_room():
-    source_b = _make_matrix_source(PROJECT_B_ROOM_ID, PROJECT_B_NAME, PROJECT_B_TOPIC)
-    entry_b = _entry(source_b, "session-b-old", "Project B Plan")
-    runner = _make_runner(source_b, [entry_b])
-    runner.session_store.get_or_create_session.return_value = _entry(
-        source_b, "session-b-current", "Current Project B"
-    )
-    runner.session_store.switch_session.return_value = entry_b
-    runner._session_db._db.resolve_session_by_title.return_value = "session-b-old"
-
-    result = await runner._handle_resume_command(
-        _event('/resume "Project B Plan"', source_b)
-    )
-
-    assert "Resumed session" in result
-    runner._session_db._db.resolve_session_by_title.assert_called_once_with("Project B Plan")
-
-
-@pytest.mark.asyncio
-async def test_matrix_resume_cross_room_requires_explicit_flag_and_warns():
-    source_a = _make_matrix_source(PROJECT_A_ROOM_ID, PROJECT_A_NAME, PROJECT_A_TOPIC)
-    source_b = _make_matrix_source(PROJECT_B_ROOM_ID, PROJECT_B_NAME, PROJECT_B_TOPIC)
-    entry_a = _entry(source_a, "session-a", "Project A Plan")
-    entry_b = _entry(source_b, "session-b", "Project B Plan")
-    runner = _make_runner(source_b, [entry_a, entry_b])
-    runner.session_store.switch_session.return_value = entry_a
-    runner._session_db._db.resolve_session_by_title.return_value = "session-a"
-
-    result = await runner._handle_resume_command(
-        _event("/resume --cross-room Project A Plan", source_b)
-    )
-
-    assert "Cross-room resume" in result
-    assert PROJECT_B_NAME in result
-    runner.session_store.switch_session.assert_called_once()
 
 

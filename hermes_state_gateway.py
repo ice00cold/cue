@@ -57,6 +57,25 @@ _PEER_SELECT_HEAD = """
 # blocks recovery (the NOT EXISTS below). ``pending``/``failed``/NULL handoffs are untouched, so this
 # is strictly "ownership was transferred", never "a handoff was attempted".
 _HANDOFF_OWNED_ROW_SQL = "(s.handoff_state = 'completed')"
+# Cue: the one main-thread key names the profile's ONLY conversation, so the seeding row's
+# ``source`` column (the platform that happened to mint it) cannot narrow the lookup — a
+# source-filtered query would split the thread per platform once the in-memory entry is gone
+# (store reset) and every platform minted its own row under the same key.
+_PEER_BY_MAIN_KEY_SQL = f"""{_PEER_SELECT_HEAD}                WHERE s.session_key = ?
+                  AND (s.ended_at IS NULL OR s.end_reason IN ({_RECOVERABLE_END_REASONS_SQL})
+                       OR {_HANDOFF_OWNED_ROW_SQL})
+                  AND NOT EXISTS (
+                      SELECT 1 FROM sessions b
+                      WHERE b.session_key = s.session_key
+                        AND b.ended_at IS NOT NULL
+                        AND b.end_reason IN ({_RESET_END_REASONS_SQL})
+                        AND b.ended_at
+                            > COALESCE(s.last_activity_at, s.started_at)
+                  )
+                ORDER BY _has_messages DESC,
+                         COALESCE(s.last_activity_at, s.started_at) DESC
+                LIMIT 1
+                """
 _PEER_BY_KEY_SQL = f"""{_PEER_SELECT_HEAD}                WHERE s.session_key = ?
                   AND s.source = ?
                   AND (s.ended_at IS NULL OR s.end_reason IN ({_RECOVERABLE_END_REASONS_SQL})
@@ -443,6 +462,16 @@ class SessionGatewayMixin:
         query += (" AND LOWER(source) = LOWER(?)" if platform else "") + (
             " AND ended_at IS NULL" if active_only else "") + " ORDER BY last_active DESC"
         return [self._session_row_dict(r) for r in self._read_all(query, params)]
+
+    def find_latest_gateway_session_for_main_key(self, *, session_key: str) -> Optional[Dict[str, Any]]:
+        """Latest recoverable row under the profile's one main-thread ``session_key``, across
+        ``source`` values. Cue's main key names the only conversation; whichever platform's row
+        minted or last carried it, that row IS the main thread (see ``_PEER_BY_MAIN_KEY_SQL``)."""
+        if not session_key:
+            return None
+        with self._read_ctx() as conn:
+            row = conn.execute(_PEER_BY_MAIN_KEY_SQL, (session_key,)).fetchone()
+        return self._session_row_dict(row) if row else None
 
     def find_latest_gateway_session_for_peer(
         self, *, source: str, user_id: Optional[str] = None, session_key: Optional[str] = None,

@@ -75,7 +75,7 @@ class TestCronContextDeliveryResolution:
         finally:
             _exit_cron_context(tokens, extra)
         assert result["success"] is True
-        assert result["deliver"] == "telegram:-100123456:17"
+        assert result["deliver"] == "telegram:-100123456"
 
     def test_literal_origin_resolves_to_creator_target(self, temp_cron_home):
         tokens, extra = _enter_cron_context("telegram", "-100123456", "17")
@@ -83,7 +83,7 @@ class TestCronContextDeliveryResolution:
             result = _create(deliver="origin")
         finally:
             _exit_cron_context(tokens, extra)
-        assert result["deliver"] == "telegram:-100123456:17"
+        assert result["deliver"] == "telegram:-100123456"
 
     def test_no_thread_id_omits_thread_segment(self, temp_cron_home):
         tokens, extra = _enter_cron_context("slack", "C0ABC")
@@ -109,7 +109,7 @@ class TestCronContextDeliveryResolution:
             result = _create(deliver="origin,all")
         finally:
             _exit_cron_context(tokens, extra)
-        assert result["deliver"] == "telegram:-100123456:17,all"
+        assert result["deliver"] == "telegram:-100123456,all"
 
     def test_explicit_target_passes_through_verbatim(self, temp_cron_home):
         tokens, extra = _enter_cron_context("telegram", "-100999", "3")
@@ -139,7 +139,7 @@ class TestCronContextUpdatePath:
         job = get_job(created["job_id"])
         stored = str(job.get("deliver", ""))
         assert "origin" not in [p.strip() for p in stored.split(",")]
-        assert stored == "telegram:-100123456:17"
+        assert stored == "telegram:-100123456"
 
     def test_update_deliver_outside_cron_context_unchanged(self, temp_cron_home):
         from tools.cronjob_tools import cronjob

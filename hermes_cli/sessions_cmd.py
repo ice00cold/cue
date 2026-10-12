@@ -3,7 +3,7 @@
 ``cmd_sessions`` routes ``args.sessions_action`` through ``_PRE_DB_HANDLERS`` (repair / recover /
 import — must run without opening ``SessionDB()``, which a malformed schema prevents) and
 ``_DB_HANDLERS`` (everything else, sharing one ``SessionDB``). ``get_hermes_home`` is resolved through
-``hermes_cli.main`` at call time so monkeypatches keep working. Picker: :mod:`hermes_cli.sessions_cmd_browse`.
+``hermes_cli.main`` at call time so monkeypatches keep working.
 """
 
 import json
@@ -15,7 +15,7 @@ from functools import partial
 from pathlib import Path
 
 from hermes_cli.cli_output import print_truncated
-from hermes_cli.sessions_cmd_browse import _relative_time, _session_browse_picker
+from hermes_cli.timefmt import relative_time as _relative_time
 from hermes_state_errors import SessionActiveWriteGuardError
 
 
@@ -861,29 +861,6 @@ def _cmd_retitle_skills(db, args):
         print(f"✓ Re-titled {changed} session(s).")
 
 
-def _cmd_browse(db, args):
-    limit = getattr(args, "limit", 500) or 500
-    sessions = db.list_sessions_rich(
-        source=getattr(args, "source", None), exclude_sources=_default_exclude(args), limit=limit
-    )
-    if not sessions:
-        db.close()
-        print("No sessions found.")
-        return
-    try:  # keep the DB open: the picker uses it for status tags and 'd' delete
-        selected_id = _session_browse_picker(sessions, session_db=db)
-    finally:
-        db.close()
-    if not selected_id:
-        print("Cancelled.")
-        return
-    print(f"Resuming session: {selected_id}")
-    from hermes_cli.relaunch import relaunch
-    relaunch(["--resume", selected_id])  # won't return after execvp
-
-
-# -- storage maintenance -----------------------------------------------------
-
 def _print_size_change(db, before_mb, prefix=""):
     """Report before/after size, preferring SQLite's page accounting over stat(): in WAL mode a VACUUM's
     rewrite sits in the -wal file until a checkpoint (refused while a live gateway holds a read-mark),
@@ -1195,7 +1172,7 @@ _DB_HANDLERS = {
     "list": _cmd_list, "export": _cmd_export, "delete": _cmd_delete, "rename": _cmd_rename, "pinned": _cmd_pinned,
     "prune": partial(_cmd_prune_or_archive, action="prune"), "pin": partial(_cmd_pin, pinning=True),
     "archive": partial(_cmd_prune_or_archive, action="archive"), "unpin": partial(_cmd_pin, pinning=False),
-    "retitle-skills": _cmd_retitle_skills, "browse": _cmd_browse, "optimize": _cmd_optimize,
+    "retitle-skills": _cmd_retitle_skills, "optimize": _cmd_optimize,
     "clean-markers": _cmd_clean_markers, "optimize-storage": _cmd_optimize_storage,
     "repair-routing": _cmd_repair_routing, "repair-prompts": _cmd_repair_prompts, "stats": _cmd_stats,
 }

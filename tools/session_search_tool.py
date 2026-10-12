@@ -13,6 +13,7 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from hermes_state_common import _BOUNDARY_END_REASONS
@@ -351,6 +352,35 @@ def _hydrate_hit(db, lineage_root: str, match_info: Dict[str, Any], result_detai
         detail=result_detail)
 
 
+def _archive_fallback(query: str, limit: int, profile: Optional[str]) -> List[Dict[str, Any]]:
+    """Discovery entries from the rolling transcript archive + topic artifacts, in the named
+    profile's home when one was requested (else the active home)."""
+    from tools.session_search_archive import search_archive
+
+    home: Optional[Path] = None
+    if profile and str(profile).strip():
+        from hermes_cli import profiles as profiles_mod
+
+        canon = profiles_mod.normalize_profile_name(profile)
+        if profiles_mod.profile_exists(canon):
+            home = profiles_mod.get_profile_dir(canon)
+    entries = []
+    for hit in search_archive(query, home=home, limit=limit):
+        entries.append({
+            "session_id": hit.get("session_id") or "(archive)",
+            "when": hit.get("when"),
+            "source": hit.get("source"),
+            "title": hit.get("title") or hit.get("topic") or None,
+            "matched_role": hit.get("matched_role"),
+            "match_message_id": None,
+            "snippet": hit.get("snippet"),
+            "topic": hit.get("topic"),
+            "archive": hit.get("archive"),
+            "detail": "archive",
+        })
+    return entries
+
+
 def _discover(db, query: str, role_filter: Optional[List[str]], limit: int, sort: Optional[str],
               detail: str, current_session_id: str = None, link_profile: str = None,
               after_ts: Optional[int] = None, before_ts: Optional[int] = None,
@@ -376,8 +406,16 @@ def _discover(db, query: str, role_filter: Optional[List[str]], limit: int, sort
     # can't starve the user's own sessions out of the top `limit`; stable sort keeps BM25
     # order within each class.
     raw_results = sorted(raw_results, key=lambda r: (r.get("source") or "") in _DEMOTED_SESSION_SOURCES)
-    # See #19434.
     if not raw_results and not title_result:
+        # Cue: the rolling transcript archive + topic artifacts answer before "no match" —
+        # rotated-out content must stay recallable even when no FTS row matches.
+        archive = _archive_fallback(query, limit, link_profile)
+        if archive:
+            return _discover_payload(
+                db, query, detail, archive, sessions_searched=0,
+                message=("No state.db matches; these hits come from the rolling archive "
+                         "(rotated-out topics and their artifacts) — read `archive` paths "
+                         "with the file tools."))
         return _discover_payload(db, query, detail, [], message=(
             "No matching sessions found. FTS5 ANDs all terms by default — "
             "broaden with OR (`alpha OR beta`), exact-match with quoted "
@@ -658,6 +696,10 @@ SESSION_SEARCH_SCHEMA = {
         "`session_id` alone = read a whole session — how you resolve an "
         "`@session:<profile>/<id>` link (split on '/' into profile + id); no "
         "args = browse recent sessions. Results are actual DB messages, no LLM. "
+        "When the index has no match, the rolling archive answers instead "
+        "(source=archive/topic_artifact): topics rotated out of context live in "
+        "per-month JSONL transcripts and markdown topic notes — read their "
+        "`archive` paths with the file tools. "
         "Searches conversation history ONLY — when the user gave a direct "
         "source (URL, file, contact, live system), inspect that first; never "
         "conclude 'not found' from history alone. Use for questions about past "

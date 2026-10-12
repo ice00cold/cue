@@ -480,16 +480,23 @@ def _turn(store: SessionStore, chat_id: str, *, marked: bool, reply: str | None,
 
 @pytest.mark.asyncio
 async def test_unclean_restart_resumes_only_the_turn_left_in_flight(tmp_path):
-    """A kill re-arms the marked turn that had no reply yet, never a chat whose turn finished just
-    before it (the removed 120 s recency sweep re-answered every recently active chat)."""
+    """One main thread: a turn that finished cleanly leaves the conversation unmarked and is
+    never re-answered; a later turn killed mid-flight leaves the active-turn marker, and THAT
+    turn is re-armed (the removed 120 s recency sweep re-answered every recently active chat)."""
     runner, store = _db_runner(tmp_path)
-    finished = _turn(store, "finished", marked=False, reply="answered and delivered")
-    in_flight = _turn(store, "in-flight", marked=True, reply=None)
+    source = _turn(store, "chat", marked=False, reply="answered and delivered")
+
+    # The last turn completed: nothing to resume.
+    assert await runner._recover_unclean_sessions() == (0, 0)
+    assert not _entry_for(store, source).resume_pending
+
+    # A follow-up turn is killed mid-flight: its marker re-arms the conversation.
+    entry = _entry_for(store, source)
+    store.mark_turn_active(entry.session_key)
+    store.append_to_transcript(entry.session_id, {"role": "user", "content": "question in-flight"})
 
     assert await runner._recover_unclean_sessions() == (1, 0)
-
-    assert not _entry_for(store, finished).resume_pending
-    resumed = _entry_for(store, in_flight)
+    resumed = _entry_for(store, source)
     assert (resumed.resume_pending, resumed.resume_reason) == (True, "restart_interrupted")
     _close_store_db(store)
 

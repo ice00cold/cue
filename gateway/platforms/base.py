@@ -1941,10 +1941,6 @@ class BasePlatformAdapter(ABC):
     splits_long_messages: bool = False
     # Prefix users can always TYPE for Hermes commands ("!" where the client eats a leading "/").
     typed_command_prefix: str = "/"
-    # ``in_channel`` continuable-cron surface: job delivered FLAT, plain replies continue it via
-    # the whole-channel bucket ``(platform, chat_id, None)``; needs a flat-reply outbound gate too
-    # (Slack ``reply_in_thread: false``). False fails SAFE -> ``thread``.
-    supports_inchannel_continuable: bool = False
     # A human can answer "session restored — what next?"; webhook-style platforms set False so
     # auto-resume finishes the work instead of asking nobody.
     # The startup auto-resume turn (``_schedule_resume_pending_sessions`` → the ``_is_resume_pending``

@@ -131,10 +131,9 @@ def test_slack_wake_resumes_the_creators_workspace_scoped_session(tmp_path, monk
         scope_id=TEAM,
     )
     wake_key = build_session_key(wake)
-    assert wake_key == build_session_key(inbound)
-    assert TEAM in wake_key
-    # A scope-less source keys to a different session for the same chat.
-    assert build_session_key(replace(wake, scope_id=None, guild_id=None)) != wake_key
+    assert wake_key == build_session_key(inbound) == "agent:main:main-thread"
+    # One main thread: the workspace rides the source (delivery authz), never the key.
+    assert build_session_key(replace(wake, scope_id=None, guild_id=None)) == wake_key
 
 
 def test_slack_wake_falls_back_to_the_adapter_channel_workspace_map(tmp_path, monkeypatch):
@@ -154,7 +153,8 @@ def test_slack_wake_falls_back_to_the_adapter_channel_workspace_map(tmp_path, mo
 
     wake = _wake_source_from(adapter)
     assert wake.scope_id == TEAM
-    assert TEAM in build_session_key(wake)
+    # One main thread: the workspace rides the source, never the key.
+    assert build_session_key(wake) == "agent:main:main-thread"
 
 
 def test_unknown_channel_keeps_the_previous_unscoped_wake(tmp_path, monkeypatch):
@@ -172,7 +172,7 @@ def test_unknown_channel_keeps_the_previous_unscoped_wake(tmp_path, monkeypatch)
 
     wake = _wake_source_from(adapter)
     assert wake.scope_id is None
-    assert build_session_key(wake) == f"agent:main:slack:group:{CHANNEL}"
+    assert build_session_key(wake) == "agent:main:main-thread"
 
 
 def test_unscoped_platform_wake_key_is_byte_identical(tmp_path, monkeypatch):
@@ -191,7 +191,7 @@ def test_unscoped_platform_wake_key_is_byte_identical(tmp_path, monkeypatch):
     assert len(adapter.handled) == 1
     wake = adapter.handled[0].source
     assert wake.scope_id is None
-    assert build_session_key(wake) == "agent:main:telegram:dm:chat-dm"
+    assert build_session_key(wake) == "agent:main:main-thread"
 
 
 def test_wake_scope_id_prefers_persisted_metadata_over_the_adapter_map():

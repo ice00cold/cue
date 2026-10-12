@@ -38,7 +38,10 @@ def _surface(surface, mgr, monkeypatch, prompts=None):
         runner._run_in_executor_with_context = execute
         runner._adapter_and_key_for = lambda event: (None, None)
         runner._enqueue_goal_turn = lambda event, text, **kwargs: prompts.append(text)
-        runner._resume_caller_is_admin = lambda source: True
+        monkeypatch.setattr(
+            "gateway.slash_access.explicitly_configured_admin",
+            lambda runner, source: True,
+        )
         def execute(arg):
             event = SimpleNamespace(get_command_args=lambda: arg, source=None)
             if arg == 'show':

@@ -1,4 +1,4 @@
-"""Tests that /new (and its /reset alias) clears session-scoped overrides."""
+"""Tests that /new (topic rotation) clears session-scoped overrides for the main thread."""
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -62,13 +62,17 @@ def _make_runner():
     runner._agent_cache_lock = None  # disables _evict_cached_agent lock path
     runner._is_user_authorized = lambda _source: True
     runner._format_session_info = lambda: ""
+    # Rotation runs its compression on a throwaway agent; this test only exercises the
+    # conversation-scope clearing, so answer "no provider" to stop before agent construction.
+    runner._resolve_session_agent_runtime = lambda **_kw: ("", {"api_key": None})
+    runner._resolve_session_reasoning_config = lambda **_kw: None
 
     return runner
 
 
 @pytest.mark.asyncio
-async def test_new_command_only_clears_own_session():
-    """/new must only clear the override for the session that triggered it."""
+async def test_new_command_clears_the_triggering_threads_overrides():
+    """/new (rotation) clears the override for the session that triggered it."""
     runner = _make_runner()
     session_key = build_session_key(_make_source())
     other_key = "other_session_key"
@@ -92,7 +96,7 @@ async def test_new_command_only_clears_own_session():
     runner._pending_model_notes[session_key] = "[Note: switched to gpt-4o.]"
     runner._pending_model_notes[other_key] = "[Note: switched to claude-sonnet-4-6.]"
 
-    await runner._handle_reset_command(_make_event("/new"))
+    await runner._handle_new_command(_make_event("/new"))
 
     assert session_key not in runner._session_model_overrides
     assert other_key in runner._session_model_overrides

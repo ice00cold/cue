@@ -1450,9 +1450,8 @@ def _resolve_continue_arg(args, *, use_tui: bool) -> None:
                 )
                 sys.exit(1)
         else:
-            # Bare -c: this terminal's breadcrumb (so side-by-side terminals
-            # each continue their own conversation), else the MRU session
-            # (also when session.terminal_continue is false).
+            # Bare -c: the CLI chat surface attaches the ONE main thread (same as a bare
+            # launch); the TUI keeps its breadcrumb/MRU resolution (later phase).
             if getattr(args, "create_if_missing", False):
                 # Nothing to create without a name — surface the no-op.
                 print(
@@ -1460,27 +1459,26 @@ def _resolve_continue_arg(args, *, use_tui: bool) -> None:
                     "`-c <name> --create-if-missing`",
                     file=sys.stderr,
                 )
-            try:
-                from hermes_cli.terminal_breadcrumbs import resolve_breadcrumb_session
+            if use_tui:
+                try:
+                    from hermes_cli.terminal_breadcrumbs import resolve_breadcrumb_session
 
-                _crumb_id = resolve_breadcrumb_session()
-            except Exception:
-                _crumb_id = None
-            if _crumb_id:
-                args.resume = _crumb_id
-            else:
-                # No valid breadcrumb — continue the most recent session
-                last_id = _latest_session_id(use_tui)
-                if last_id:
-                    args.resume = last_id
+                    _crumb_id = resolve_breadcrumb_session()
+                except Exception:
+                    _crumb_id = None
+                if _crumb_id:
+                    args.resume = _crumb_id
                 else:
-                    kind = "TUI" if use_tui else "CLI"
-                    print(
-                        f"No previous {kind} session to continue. Start a new one with "
-                        "`hermes`, or list sessions with `hermes sessions list`.",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
+                    last_id = _latest_session_id(use_tui)
+                    if last_id:
+                        args.resume = last_id
+                    else:
+                        print(
+                            "No previous TUI session to continue. Start a new one with "
+                            "`cue`, or list sessions with `cue sessions list`.",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
 
 
 def _apply_in_dir(args) -> None:
@@ -1545,18 +1543,20 @@ def _resolve_chat_session_args(args, use_tui: bool) -> None:
     """
     _apply_in_dir(args)
 
-    # --resume latest: same resolution as bare `-c`. The keyword wins over a
-    # session literally titled "latest" (still reachable by ID or `-c latest`).
+    # --resume latest / bare --continue = "continue the conversation" = Cue's ONE main thread,
+    # which a bare launch already attaches. The TUI keeps its own resolution (later phase).
     _resume_raw = getattr(args, "resume", None)
     if isinstance(_resume_raw, str) and _resume_raw.strip().lower() == "latest":
-        _last_id = _latest_session_id(use_tui)
-        if _last_id:
-            args.resume = _last_id
+        if use_tui:
+            _last_id = _latest_session_id(use_tui)
+            if _last_id:
+                args.resume = _last_id
+            else:
+                print("No previous TUI session found to resume.")
+                print("Use 'cue sessions list' to see available sessions.")
+                sys.exit(1)
         else:
-            kind = "TUI" if use_tui else "CLI"
-            print(f"No previous {kind} session found to resume.")
-            print("Use 'hermes sessions list' to see available sessions.")
-            sys.exit(1)
+            args.resume = None  # the main thread — same as a bare launch
 
     _resolve_continue_arg(args, use_tui=use_tui)
 

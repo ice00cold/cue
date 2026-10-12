@@ -102,24 +102,6 @@ class SessionRecoveryMixin:
             thread_sessions_per_user=getattr(self.config, "thread_sessions_per_user", False),
             profile=self._resolve_profile_for_key(source))
 
-    def _legacy_slack_session_key(self, source: SessionSource) -> Optional[str]:
-        """Pre-workspace Slack key for an explicitly scoped source. Deliberately Slack-only: an
-        unscoped Slack session may be claimed by only one workspace (old key cannot tell teams)."""
-        if source.platform != Platform.SLACK or not source.scope_id:
-            return None
-        return self._generate_session_key(source, replace(source, scope_id=None, guild_id=None))
-
-    def _claim_legacy_slack_key(self, legacy_key: Optional[str]) -> bool:
-        """Atomically reserve one ambiguous legacy Slack key for migration."""
-        if not legacy_key:
-            return False
-        with self._lazy("_legacy_slack_claim_lock", threading.Lock):
-            claimed = self._lazy("_claimed_legacy_slack_keys", set)
-            if legacy_key in claimed:
-                return False
-            claimed.add(legacy_key)
-            return True
-
     @staticmethod
     def _recovered_row_matches_source_scope(
         recovered: Dict[str, Any], source: SessionSource
@@ -169,12 +151,33 @@ class SessionRecoveryMixin:
         """Query one durable gateway session row. Scoped Slack lookups disable SessionDB's
         platform/chat/user fallback: that tuple has no workspace id and could revive another team's
         session; the caller performs one explicit exact lookup of the old unscoped key instead."""
+        from gateway.session import is_main_thread_session_key
+        if is_main_thread_session_key(session_key):
+            # One conversation per profile: adopt the key's row whatever platform minted it (a
+            # source-filtered lookup would split the main thread per platform after a store reset).
+            return self._main_key_row(
+                self._db_for_key(session_key), session_key=session_key,
+                raise_on_lookup_error=raise_on_lookup_error)
         return self._peer_row(
             self._db_for_key(session_key), source=source.platform.value, session_key=session_key,
             user_id=source.user_id,
             chat_id=source.chat_id if allow_peer_fallback else None,
             chat_type=source.chat_type if allow_peer_fallback else None,
             thread_id=source.thread_id, raise_on_lookup_error=raise_on_lookup_error)
+
+    @staticmethod
+    def _main_key_row(db, *, session_key: str, raise_on_lookup_error: bool = False) -> Optional[Dict[str, Any]]:
+        """``db.find_latest_gateway_session_for_main_key`` guarded the same way as ``_peer_row``."""
+        finder = getattr(db, "find_latest_gateway_session_for_main_key", None) if db else None
+        if not callable(finder):
+            return None
+        try:
+            return finder(session_key=session_key)
+        except Exception as exc:
+            logger.debug("Main-thread session DB recovery failed for %s: %s", session_key, exc)
+            if raise_on_lookup_error:
+                raise
+            return None
 
     @staticmethod
     def _peer_row(db, *, source: str, session_key: str, raise_on_lookup_error: bool = False,
@@ -238,60 +241,41 @@ class SessionRecoveryMixin:
         self, *, session_key: str, source: SessionSource, now: datetime,
         raise_on_lookup_error: bool = False) -> Optional[SessionEntry]:
         """Rebuild a missing session-key mapping from a recoverable durable row."""
-        entry, migrated_legacy = self._query_recoverable_row(
-            # The legacy (pre-workspace) Slack key fallback happens INSIDE _query_recoverable_session
-            # (#20583/#66398 design): it performs the exact-key legacy lookup, claims the key once per
-            # process, and rewrites the peer row to the scoped key on success.
+        entry = self._query_recoverable_row(
             session_key=session_key, source=source, now=now,
             raise_on_lookup_error=raise_on_lookup_error)
         if entry is None:
             return None
         self._reopen_session_row(session_key, entry.session_id)
-        if migrated_legacy:
-            self._record_gateway_session_peer(
-                entry.session_id, session_key, source, display_name=entry.display_name)
         return entry
 
     def _query_recoverable_session(self, *, session_key, source, now):
         """DB-only half of _recover_session_from_db (no lock needed): a SessionEntry or None; the
         caller assigns _entries[key] under lock. The row is NOT reopened here: the caller evaluates
         reset policy first (an agent_close/ws_orphan row may need promotion to a real reset)."""
-        entry, migrated_legacy = self._query_recoverable_row(
+        return self._query_recoverable_row(
             session_key=session_key, source=source, now=now)
-        if entry is not None and migrated_legacy:
-            self._record_gateway_session_peer(
-                entry.session_id, session_key, source, display_name=entry.display_name)
-        return entry
 
     def _query_recoverable_row(
         self, *, session_key, source, now, raise_on_lookup_error=False,
-    ) -> tuple[Optional[SessionEntry], bool]:
-        """Find and gate a recoverable row -> (entry or None, migrated_legacy). The legacy
-        (pre-workspace) Slack key fallback lives here: exact-key lookup, claimed once per process;
-        ``migrated_legacy`` tells the caller to rewrite the peer row to the scoped key."""
-        legacy_key = self._legacy_slack_session_key(source)
+    ) -> Optional[SessionEntry]:
+        """Find and gate a recoverable row -> entry or None."""
         recovered = self._find_gateway_session_row(
-            session_key=session_key, source=source, allow_peer_fallback=legacy_key is None,
+            session_key=session_key, source=source, allow_peer_fallback=True,
             raise_on_lookup_error=raise_on_lookup_error)
-        migrated_legacy = False
-        if not recovered and legacy_key and self._claim_legacy_slack_key(legacy_key):
-            recovered = self._find_gateway_session_row(
-                session_key=legacy_key, source=source, allow_peer_fallback=False,
-                raise_on_lookup_error=raise_on_lookup_error)
-            migrated_legacy = bool(recovered)
         if not isinstance(recovered, dict):
-            return None, False
+            return None
         if not self._recovered_row_matches_source_scope(recovered, source):
-            return None, False
+            return None
         if not self._recovered_row_allowed_for_active_profile(
             requested_session_key=session_key, recovered=recovered):
             logger.warning(
                 "Gateway session DB recovery ignored %s for %s because the row belongs to a "
                 "different profile", recovered.get("session_key"), session_key)
-            return None, False
+            return None
         entry = self._create_entry_from_recovered_row(
             row=recovered, session_key=session_key, source=source, now=now)
-        return entry, migrated_legacy
+        return entry
 
     def _promote_session_reset(self, session_key: str, session_id: str, reason: str, *, log) -> None:
         """End *session_id* with *reason* via ``promote_to_session_reset`` (``end_session`` on old
@@ -353,36 +337,6 @@ class SessionRecoveryMixin:
                 logger.debug("Gateway session peer record failed for %s: %s", session_key, exc)
         except Exception as exc:
             logger.debug("Gateway session peer record failed for %s: %s", session_key, exc)
-
-    def _adopt_legacy_slack_entry(self, source: SessionSource, session_key: str) -> None:
-        """One-time migration of pre-workspace-scope Slack keys: MOVE (not copy) the legacy entry so
-        a second workspace with identical Slack ids cannot attach to the same transcript. Adopt when
-        the legacy origin names the same workspace; a scope-less DM is claimed once by the first
-        workspace; a scope-less channel/group is refused (channel ids collide across workspaces)."""
-        legacy_key = self._legacy_slack_session_key(source)
-        if not legacy_key:
-            return
-        migrated: Optional[SessionEntry] = None
-        with self._lock:
-            self._ensure_loaded_locked()
-            legacy_entry = self._entries.get(legacy_key)
-            if session_key not in self._entries and legacy_entry is not None:
-                origin_scope = getattr(legacy_entry.origin, "scope_id", None)
-                if origin_scope is not None:
-                    adopt = origin_scope == source.scope_id
-                else:
-                    adopt = source.chat_type == "dm"
-                if adopt and self._claim_legacy_slack_key(legacy_key):
-                    migrated = self._entries.pop(legacy_key)
-                    migrated.session_key = session_key
-                    migrated.origin = source
-                    migrated.platform = source.platform
-                    migrated.chat_type = source.chat_type
-                    self._entries[session_key] = migrated
-        if migrated is not None:
-            self._save_entries()
-            self._record_gateway_session_peer(
-                migrated.session_id, session_key, source, display_name=migrated.display_name)
 
     def _finish_route_transition(
         self, session_key: str, *, end_session_id: Optional[str], end_reason: str,

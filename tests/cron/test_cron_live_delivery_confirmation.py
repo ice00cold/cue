@@ -251,12 +251,14 @@ class TestLiveDeliveryIsAFinalNotification:
         assert metadata["job_id"] == "92e639af907f"
         assert metadata["notify"] is True
 
-    def test_forum_topic_route_keeps_thread_and_notify(self):
+    def test_legacy_origin_topic_routs_flat_but_keeps_notify(self):
+        """Cue: an origin thread_id (legacy job) is dropped — the report goes to the chat, not
+        the topic lane — while the notify marker still rides the route."""
         _, router_calls, _ = _run(
             _job(thread_id="99"), "Nightly report.", _SendResult(message_id=1),
         )
         metadata = router_calls[0]["metadata"]
-        assert metadata["thread_id"] == "99"
+        assert "thread_id" not in metadata
         assert metadata["notify"] is True
 
     def test_media_route_metadata_carries_notify(self, tmp_path):
@@ -297,7 +299,7 @@ class TestNotifyIsConfigurable:
         )
         metadata = router_calls[0]["metadata"]
         assert metadata["notify"] is False
-        assert metadata["thread_id"] == "99"  # routing untouched
+        assert "thread_id" not in metadata  # flat origin routing, notify config only
 
     def test_explicit_false_disables_notify_on_media_route(self, tmp_path):
         media = tmp_path / "report.png"

@@ -42,16 +42,19 @@ def _make_event(chat_id: str) -> MessageEvent:
 
 @pytest.mark.asyncio
 async def test_yolo_command_toggles_only_current_session(monkeypatch):
+    """Cue: one main thread — /yolo is the thread's approval mode, so every chat window of the
+    profile shares it (there is exactly one session key)."""
     runner = _make_runner()
 
     event_a = _make_event("chat-a")
     session_a = runner._session_key_for_source(event_a.source)
     session_b = runner._session_key_for_source(_make_event("chat-b").source)
+    assert session_a == session_b  # one main thread: both windows, one conversation
 
     await runner._handle_yolo_command(event_a)
 
     assert is_session_yolo_enabled(session_a) is True
-    assert is_session_yolo_enabled(session_b) is False
+    assert is_session_yolo_enabled(session_b) is True  # same key — same conversation
     assert os.environ.get("HERMES_YOLO_MODE") is None
 
     await runner._handle_yolo_command(event_a)

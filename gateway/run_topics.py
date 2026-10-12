@@ -61,21 +61,14 @@ class GatewayTopicThreadsMixin:
         return source.platform == Platform.TELEGRAM and source.chat_type == "dm"
 
     def _telegram_topic_mode_enabled(self, source: SessionSource) -> bool:
-        """Return whether Telegram DM topic mode is active for this chat."""
-        session_db = self._sync_session_db() if self._is_telegram_dm(source) else None
-        if session_db is None:
-            return False
-        try:
-            raw = session_db.is_telegram_topic_mode_enabled(
-                chat_id=str(source.chat_id), user_id=str(source.user_id),
-                profile_name=self._telegram_topic_profile_name(source),
-            )
-        except Exception:
-            logger.debug("Failed to read Telegram topic mode state", exc_info=True)
-            return False
-        # Only a real True enables topic mode; anything else (including MagicMock from test
-        # fixtures that didn't opt in) means off for this chat.
-        return raw is True
+        """Return whether Telegram DM topic mode is active for this chat.
+
+        Cue: always off. Topic lanes were upstream's per-topic session UX; with one main
+        thread per profile there is nothing for a topic lane to bind to, so the whole
+        topic-lane machinery (bindings, lobby hints, heal/switch on the main key) stays
+        dormant even for chats that enabled it before the fork.
+        """
+        return False
 
     def _is_telegram_topic_root_lobby(self, source: SessionSource) -> bool:
         """True for the main Telegram DM (or General topic) when topic mode has made it a lobby."""

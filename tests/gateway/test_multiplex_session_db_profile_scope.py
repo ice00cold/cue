@@ -873,8 +873,9 @@ def test_profile_named_main_keeps_its_own_namespace_and_store(multiplex_homes):
     assert main_key != default_key
     assert store._profile_from_session_key(main_key) == "main"
     assert store._profile_from_session_key(default_key) == "default"
-    assert _parse_session_key(main_key)["profile"] == "main"
-    assert "profile" not in _parse_session_key(default_key)
+    # Cue's three-segment main-thread keys are not legacy per-chat keys: the namespace slot alone
+    # carries the profile (``_parse_session_key`` is the legacy-shape parser, kept for old rows).
+    assert main_key == "agent:main~:main-thread" and default_key == "agent:main:main-thread"
 
     scope = set_hermes_home_override(str(main_home))
     try:

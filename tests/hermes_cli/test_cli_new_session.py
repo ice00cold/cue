@@ -1,4 +1,5 @@
-"""Regression tests for CLI fresh-session commands."""
+"""Cue CLI session-shape commands: /new rotates the topic (same session), new_session resets
+in-memory context (toolset changes) without minting a session id."""
 
 from __future__ import annotations
 
@@ -80,7 +81,7 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
     _clean_config = {
         "model": {
             "default": "anthropic/claude-opus-4.6",
-            "base_url": "https://openrouter.ai/api/v1",
+            "base_url": "https://openrouter.ai/v1",
             "provider": "auto",
         },
         "display": {"compact": False, "tool_progress": "all"},
@@ -127,16 +128,11 @@ def _prepare_cli_with_active_session(tmp_path):
     cli._session_db.create_session(session_id=cli.session_id, source="cli", model=cli.model)
 
     cli.agent = _FakeAgent(cli.session_id, cli.session_start)
-    cli.conversation_history = [{"role": "user", "content": "hello"}]
+    cli.conversation_history = [{"role": "user", "content": "hello"}] * 8
 
     old_session_start = cli.session_start - timedelta(seconds=1)
     cli.session_start = old_session_start
     cli.agent.session_start = old_session_start
-
-    # Bypass the destructive-slash confirmation gate — these tests focus on
-    # the new-session mechanics, not the confirm prompt itself (covered in
-    # tests/hermes_cli/test_destructive_slash_confirm.py).
-    cli._confirm_destructive_slash = lambda *_a, **_kw: "once"
     return cli
 
 
@@ -149,24 +145,54 @@ def _reset_session_id_context():
     _VAR_MAP["HERMES_SESSION_ID"].set(_UNSET)
 
 
-def test_new_command_creates_real_fresh_session_and_resets_agent_state(tmp_path):
+def test_new_command_rotates_the_topic_in_the_same_session(tmp_path, monkeypatch):
+    """/new runs the topic rotation and installs its compacted history; the session id NEVER
+changes and the session row is never ended."""
+    from agent.context_rotation import RotationResult
+
+    cli = _prepare_cli_with_active_session(tmp_path)
+    old_session_id = cli.session_id
+    rotated = RotationResult("rotated", list(cli.conversation_history),
+                             [{"role": "user", "content": "summary + tail"}], title="T")
+
+    def _fake_rotate(agent, history, *, title=None, task_id="default"):
+        assert title == "T"
+        return rotated
+
+    import agent.context_rotation as _rot
+    monkeypatch.setattr(_rot, "rotate_topic", _fake_rotate)
+    monkeypatch.setattr(
+        "hermes_cli.cli_session_mixin.rotate_topic", _fake_rotate, raising=False)
+
+    cli.process_command("/new T")
+
+    assert cli.session_id == old_session_id  # one main thread: never a fresh id
+    assert cli.conversation_history == rotated.after_messages
+    session = cli._session_db.get_session(old_session_id)
+    assert session is not None and session["end_reason"] is None  # conversation continues
+
+
+def test_new_command_reports_a_short_conversation(tmp_path, capsys):
+    cli = _prepare_cli_with_active_session(tmp_path)
+    cli.conversation_history = [{"role": "user", "content": "hi"}]
+    cli.process_command("/new")
+    assert "Nothing to rotate" in capsys.readouterr().out
+
+
+def test_new_session_resets_context_without_minting_an_id(tmp_path):
+    """new_session (toolset toggle / browser-use / voice wake) resets in-memory state and
+    rebuilds the agent — under the one-main-thread model it KEEPS the session id and never
+    ends the row."""
     cli = _prepare_cli_with_active_session(tmp_path)
     old_session_id = cli.session_id
     old_session_start = cli.session_start
 
-    cli.process_command("/new")
+    cli.new_session()
 
-    assert cli.session_id != old_session_id
-
-    old_session = cli._session_db.get_session(old_session_id)
-    assert old_session is not None
-    assert old_session["end_reason"] == "new_session"
-
-    new_session = cli._session_db.get_session(cli.session_id)
-    assert new_session is not None
-
-    cli._session_db.append_message(cli.session_id, role="user", content="next turn")
-
+    assert cli.session_id == old_session_id
+    session = cli._session_db.get_session(old_session_id)
+    assert session is not None and session["end_reason"] is None
+    assert cli.conversation_history == []
     assert cli.agent.session_id == cli.session_id
     assert cli.agent._last_flushed_db_idx == 0
     assert cli.agent._todo_store.read() == []
@@ -175,16 +201,12 @@ def test_new_command_creates_real_fresh_session_and_resets_agent_state(tmp_path)
     cli.agent._invalidate_system_prompt.assert_called_once()
 
 
-
-
-
-
 def test_new_session_delivers_context_engine_boundary_synchronously(tmp_path):
-    """The context-engine on_session_end must fire during /new itself.
+    """The context-engine on_session_end must fire during the reset itself.
 
     It is cheap local state work and ordering-sensitive: it must land before
-    reset_session_state() rebinds the engine to the new session. The LLM-bound
-    provider extraction is what gets deferred, not this."""
+    reset_session_state() rebinds the engine. The LLM-bound provider extraction is
+    what gets deferred, not this."""
     cli = _prepare_cli_with_active_session(tmp_path)
     old_session_id = cli.session_id
 
@@ -193,13 +215,13 @@ def test_new_session_delivers_context_engine_boundary_synchronously(tmp_path):
         lambda sid, msgs: engine_calls.append((sid, list(msgs)))
     )
 
-    cli.process_command("/new")
+    cli.new_session()
 
-    assert engine_calls == [(old_session_id, [{"role": "user", "content": "hello"}])]
+    assert engine_calls == [(old_session_id, [{"role": "user", "content": "hello"}] * 8)]
 
 
 def test_run_cleanup_flushes_pending_memory_manager_work(tmp_path):
-    """A '/new then quit' must not drop the queued old-session extraction.
+    """A 'reset then quit' must not drop the queued old-context extraction.
 
     _run_cleanup gives the manager's serialized worker a bounded drain via
     flush_pending() before shutdown_all()'s short-fuse drain runs."""
@@ -223,34 +245,28 @@ def test_run_cleanup_flushes_pending_memory_manager_work(tmp_path):
     mm.flush_pending.assert_called_once_with(timeout=10)
 
 
-
-
-
-
-def test_clear_command_starts_new_session_before_redrawing(tmp_path):
+def test_clear_command_only_clears_the_screen(tmp_path):
+    """/clear is visual: no session change, no history loss."""
     cli = _prepare_cli_with_active_session(tmp_path)
     cli.console = MagicMock()
     cli.show_banner = MagicMock()
 
     old_session_id = cli.session_id
+    history = list(cli.conversation_history)
     cli.process_command("/clear")
 
-    assert cli.session_id != old_session_id
-    assert cli._session_db.get_session(old_session_id)["end_reason"] == "new_session"
-    assert cli._session_db.get_session(cli.session_id) is not None
+    assert cli.session_id == old_session_id
+    assert cli.conversation_history == history
     cli.console.clear.assert_called_once()
     cli.show_banner.assert_called_once()
-    assert cli.conversation_history == []
-
-
 
 
 def test_new_session_resets_token_counters(tmp_path):
-    """Regression test for #2099: /new must zero all token counters.
+    """Regression test for #2099: a context reset must zero all token counters.
 
     Drives the real ``AIAgent.reset_session_state`` (and the real context-engine
     ``on_session_reset``) on the fake agent's attribute bag, so this guards both the
-    CLI wiring (/new must call the reset) and the reset itself.
+    CLI wiring (the reset must call the reset) and the reset itself.
     """
     import types
 
@@ -270,7 +286,7 @@ def test_new_session_resets_token_counters(tmp_path):
     assert agent.session_api_calls > 0
     assert comp.compression_count > 0
 
-    cli.process_command("/new")
+    cli.new_session()
 
     assert agent.session_total_tokens == 0
     assert agent.session_input_tokens == 0
@@ -289,24 +305,3 @@ def test_new_session_resets_token_counters(tmp_path):
     assert comp.last_completion_tokens == 0
     assert comp.last_total_tokens == 0
     assert comp.compression_count == 0
-
-
-def test_new_session_with_title(capsys):
-    """new_session(title=...) creates a session and sets the title."""
-    cli = _make_cli()
-    cli._session_db = MagicMock()
-    cli.agent = _FakeAgent("old_session_id", datetime.now())
-    cli.conversation_history = []
-
-    cli.new_session(title="My Test Session")
-
-    # Assert set_session_title was called with the new session ID and sanitized title
-    cli._session_db.set_session_title.assert_called_once()
-    call_args = cli._session_db.set_session_title.call_args
-    assert call_args[0][0] == cli.session_id
-    assert call_args[0][1] == "My Test Session"
-
-    captured = capsys.readouterr()
-    assert "My Test Session" in captured.out
-
-
