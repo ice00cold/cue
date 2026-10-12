@@ -106,9 +106,11 @@ def display_kind_for_event(event: Any) -> str | None:
 
     A scheduled heartbeat prompt is self-injected too (``_heartbeat_session_id`` is stamped only
     by the gateway poller, never inferred from inbound text), but it deliberately stays
-    non-internal so authorization and the emergency stop still apply to it.
+    non-internal so authorization and the emergency stop still apply to it. Cue's proactive
+    tick (``_proactive_tick``, gateway/run_proactive.py) is machinery the same way.
     """
-    if getattr(event, "internal", False) or getattr(event, "_heartbeat_session_id", None):
+    if (getattr(event, "internal", False) or getattr(event, "_heartbeat_session_id", None)
+            or getattr(event, "_proactive_tick", False)):
         return INTERNAL_NOTIFICATION_DISPLAY_KIND
     return None
 

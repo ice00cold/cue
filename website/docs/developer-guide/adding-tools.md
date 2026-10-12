@@ -206,6 +206,6 @@ OPTIONAL_ENV_VARS = {
 - [ ] Added to appropriate toolset in `toolsets.py`
 - [ ] Confirmed this really should be a built-in/core tool and not a plugin
 - [ ] Handler returns JSON strings, errors returned as `{"error": "..."}`
-- [ ] Optional: API key added to `OPTIONAL_ENV_VARS` in `hermes_cli/config.py`
+- [ ] Optional: API key added to `OPTIONAL_ENV_VARS` in `hermes_cli/config_defaults_env.py`
 - [ ] Optional: Added to `toolset_distributions.py` for batch processing
 - [ ] Tested with `hermes chat -q "Use the weather tool for London"`

@@ -77,7 +77,7 @@ hermes-agent/
 │
 ├── hermes_cli/               # CLI subcommands and setup
 │   ├── main.py               # Entry point — `hermes` subcommands (parsers in subcommands/, main_*.py)
-│   ├── config.py             # DEFAULT_CONFIG, OPTIONAL_ENV_VARS, migration
+│   ├── config.py             # config loading/saving, migration (defaults + OPTIONAL_ENV_VARS re-exported from config_defaults*.py)
 │   ├── commands.py           # COMMAND_REGISTRY — central slash command definitions
 │   ├── auth.py               # PROVIDER_REGISTRY, credential resolution (+ auth_*.py siblings)
 │   ├── runtime_provider.py   # Provider → api_mode + credentials

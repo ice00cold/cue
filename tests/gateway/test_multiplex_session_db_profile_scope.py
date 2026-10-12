@@ -858,7 +858,6 @@ def test_profile_named_main_keeps_its_own_namespace_and_store(multiplex_homes):
     profile literally named ``main`` produced byte-identical keys to the default and, once default
     keys were pinned to the launch store, its scoped sessions were written into the ROOT
     ``state.db``. Its namespace must differ from the default's and resolve back to ``profiles/main``."""
-    from gateway.run import _parse_session_key
     from gateway.session import build_session_key
 
     root, _profile = multiplex_homes
@@ -874,7 +873,7 @@ def test_profile_named_main_keeps_its_own_namespace_and_store(multiplex_homes):
     assert store._profile_from_session_key(main_key) == "main"
     assert store._profile_from_session_key(default_key) == "default"
     # Cue's three-segment main-thread keys are not legacy per-chat keys: the namespace slot alone
-    # carries the profile (``_parse_session_key`` is the legacy-shape parser, kept for old rows).
+    # carries the profile (``parse_session_key`` is the legacy-shape parser, kept for old rows).
     assert main_key == "agent:main~:main-thread" and default_key == "agent:main:main-thread"
 
     scope = set_hermes_home_override(str(main_home))

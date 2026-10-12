@@ -16,7 +16,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from gateway.config import GatewayConfig, Platform
-from gateway.run import GatewayRunner, _parse_session_key
+from gateway.run import GatewayRunner
+from gateway.session import parse_session_key
 from gateway.run_notifications import INTERNAL_NOTIFICATION_FOOTER
 
 
@@ -529,19 +530,19 @@ async def test_concise_mode_no_interim_output_updates(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _parse_session_key helper
+# parse_session_key helper
 # ---------------------------------------------------------------------------
 
 
 def test_parse_session_key_with_extra_parts():
     """6th part in a group key may be a user_id, not a thread_id — omit it."""
-    result = _parse_session_key("agent:main:discord:group:chan123:thread456")
+    result = parse_session_key("agent:main:discord:group:chan123:thread456")
     assert result == {"platform": "discord", "chat_type": "group", "chat_id": "chan123"}
 
 
 def test_parse_session_key_named_profile():
     """A named-profile namespace parses and is reported as ``profile``."""
-    result = _parse_session_key("agent:work:telegram:dm:123")
+    result = parse_session_key("agent:work:telegram:dm:123")
     assert result == {
         "profile": "work",
         "platform": "telegram",
@@ -552,7 +553,7 @@ def test_parse_session_key_named_profile():
 
 def test_parse_session_key_named_profile_thread_id():
     """Thread-slot handling is identical for named-profile keys."""
-    result = _parse_session_key("agent:work:telegram:thread:100:42")
+    result = parse_session_key("agent:work:telegram:thread:100:42")
     assert result == {
         "profile": "work",
         "platform": "telegram",
@@ -564,7 +565,7 @@ def test_parse_session_key_named_profile_thread_id():
 
 def test_parse_session_key_named_profile_group_suffix_omitted():
     """Group-suffix (user_id) stays omitted for named-profile keys too."""
-    result = _parse_session_key("agent:work:discord:group:chan1:user9")
+    result = parse_session_key("agent:work:discord:group:chan1:user9")
     assert result == {
         "profile": "work",
         "platform": "discord",
@@ -575,7 +576,7 @@ def test_parse_session_key_named_profile_group_suffix_omitted():
 
 def test_parse_session_key_main_shape_unchanged():
     """``main`` keys keep their historical dict shape exactly (no ``profile`` key)."""
-    result = _parse_session_key("agent:main:telegram:dm:123:42")
+    result = parse_session_key("agent:main:telegram:dm:123:42")
     assert result == {
         "platform": "telegram",
         "chat_type": "dm",
@@ -586,9 +587,9 @@ def test_parse_session_key_main_shape_unchanged():
 
 def test_parse_session_key_rejects_invalid_namespace():
     """A namespace slot that cannot be a profile id still parses to None."""
-    assert _parse_session_key("agent:Bad_NS:telegram:dm:123") is None
-    assert _parse_session_key("agent:main:telegram:dm") is None
-    assert _parse_session_key("raw-session-id") is None
+    assert parse_session_key("agent:Bad_NS:telegram:dm:123") is None
+    assert parse_session_key("agent:main:telegram:dm") is None
+    assert parse_session_key("raw-session-id") is None
 
 
 def test_build_process_event_source_named_profile_key(monkeypatch, tmp_path):

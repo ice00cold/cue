@@ -332,10 +332,13 @@ class GatewayGoalsMixin:
             logger.debug("post-turn session resolution failed: %s", exc)
             return
         # Empty interrupted/errored responses must not drive /goal, but an in-flight /loop tick
-        # still needs to be released and rescheduled.
+        # still needs to be released and rescheduled. A proactive tick's muted reply still
+        # queues its summary (Phase 4) — only the goal judge needs real text.
         hooks = [("loop completion", self._post_turn_loop_completion)]
         if final_text.strip():
             hooks.insert(0, ("goal continuation", self._post_turn_goal_continuation))
+        if getattr(event, "_proactive_tick", False):
+            hooks.append(("proactive summary", self._post_turn_proactive_summary))
         for label, hook in hooks:
             try:
                 await hook(session_entry=session_entry, source=source, final_response=final_text)

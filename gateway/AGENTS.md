@@ -65,6 +65,20 @@ MagicMock adapters in older tests auto-create truthy attributes.
 without spending an attempt. Long form: `website/docs/developer-guide/gateway-internals.md`
 § Background process notifications.
 
+## Proactive loop (Cue)
+
+`gateway/run_proactive.py` (`GatewayProactiveMixin`, supervised as `_proactive_watcher`): per
+served profile, on a 60s poll gated by `run_idle_gates.profile_has_proactive_work`, it (1) fires
+the **goal tick** when the anchor in `<home>/proactive.yaml` is due, the main thread is idle and
+`hermes pause` is not engaged — deterministic selection (`tools/proactive_store.py::
+select_goal_actions`, least-recently-picked first) injected as ONE ordinary user turn (origin
+source, home-channel fallback; never a thread lane), reply muted via `_notification_reply_muted`
+and queued by the post-turn hook; and (2) **flushes the outbox** as one report per
+`proactive.report_interval_minutes` outside `proactive.quiet_hours`, mirrored into the main
+thread. Deferral mirrors the heartbeat poller (busy/paused leaves the tick due; a never-started
+injection refunds the anchor). Escalation: `decisions_log` pings immediately only on an impact
+match against `proactive.wake_patterns`.
+
 ## `/login` (off-turn, paired DM only)
 
 `GatewayLoginCommandsMixin` refuses outside a real paired DM (ntfy, raft and a2a report `dm` for

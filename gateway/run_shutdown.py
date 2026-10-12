@@ -971,7 +971,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         """``(source, platform_str, chat_id, thread_id, profile)``: persisted origin > cached source >
         parsed key. ``profile`` is the owning profile from the source or the ``agent:<profile>:`` key
         namespace (``None`` = default) so the notice leaves through that profile's bot."""
-        from gateway.run import _parse_session_key
+        from gateway.session import parse_session_key
         source = None
         try:
             if getattr(self, "session_store", None) is not None:
@@ -984,7 +984,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             source = self._get_cached_session_source(session_key)
         if source is not None:
             return source, source.platform.value, str(source.chat_id), source.thread_id, getattr(source, "profile", None)
-        _parsed = _parse_session_key(session_key)
+        _parsed = parse_session_key(session_key)
         if not _parsed:
             return None
         return None, _parsed["platform"], _parsed["chat_id"], _parsed.get("thread_id"), _parsed.get("profile")
