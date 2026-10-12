@@ -63,7 +63,7 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 ### Phase 3 — Decision queue
 - [x] Decisions store + tool
 - [x] Telegram ping on new pending decision *(rides decisions_log: send_message to the profile's Telegram home channel, mirrored into the one main thread; never targets threads)*
-- [ ] `/decisions` command + resolution flow
+- [x] `/decisions` command + resolution flow *(shared parser in hermes_cli/decision_command.py; CLI + gateway + TUI surfaces delegate; an answer resolves the record and enqueues the resume turn into the one main thread)*
 
 ### Phase 4 — Proactive loop
 - [ ] Heartbeat does autonomous goal work between conversations
