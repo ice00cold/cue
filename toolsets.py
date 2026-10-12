@@ -23,6 +23,7 @@ _HERMES_CORE_TOOLS = [
     "text_to_speech",
     "todo_list", "memory",
     "goals_read", "goals_update", "goals_review",
+    "decisions_log", "decisions_list", "decisions_resolve",
     "session_search",
     "clarify",
     "execute_code", "delegate_task",
@@ -131,6 +132,11 @@ TOOLSETS = {
         "First-class goal state: read/update goals, log progress, run reviews "
         "(drift detection and the review cadence ride on these)",
         ["goals_read", "goals_update", "goals_review"],
+    ),
+    "decisions": _ts(
+        "Pending-decision queue: log forks (options + recommendation + impact), "
+        "list open ones, resolve with the user's answer and rationale",
+        ["decisions_log", "decisions_list", "decisions_resolve"],
     ),
     "memory": _ts("Persistent memory across sessions (personal notes + user profile)", ["memory"]),
     "context_engine": _ts("Runtime tools exposed by the active context engine"),

@@ -61,7 +61,7 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 - [x] Review cron → main thread *(built against the current cron delivery surface — see Open decisions #4)*
 
 ### Phase 3 — Decision queue
-- [ ] Decisions store + tool
+- [x] Decisions store + tool
 - [ ] Telegram ping on new pending decision
 - [ ] `/decisions` command + resolution flow
 
