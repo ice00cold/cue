@@ -21,7 +21,7 @@ export function SidebarStatusStrip({ status }: SidebarStatusStripProps) {
 
   return (
     <Link
-      to="/sessions"
+      to="/"
       title={t.app.statusOverview}
       className={cn(
         "block text-left",
