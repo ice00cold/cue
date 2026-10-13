@@ -24,8 +24,6 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hermes_cli.web_routers._common import log as _log
-
 router = APIRouter()
 
 #: Control verbs the card offers. Goal-setting and gate management stay with
@@ -157,5 +155,4 @@ async def post_goal_action(body: GoalActionBody, profile: Optional[str] = None):
             response["delivered"] = "unavailable"
             response["delivery_note"] = reason
     response.update(await asyncio.to_thread(_goal_snapshot, _home_for(profile), live_id))
-    _log.debug("goal card action %s on %s: %s", action, live_id, result.output.splitlines()[0])
     return response

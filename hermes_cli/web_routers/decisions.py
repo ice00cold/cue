@@ -24,8 +24,6 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hermes_cli.web_routers._common import log as _log
-
 router = APIRouter()
 
 
