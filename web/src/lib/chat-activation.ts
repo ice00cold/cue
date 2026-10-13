@@ -15,3 +15,12 @@
 export function latchChatActivation(previous: boolean, isActive: boolean): boolean {
   return previous || isActive;
 }
+
+/**
+ * Routes whose visit activates (and shows) the persistent chat host: the
+ * Thread home ("/") and the bare terminal view ("/chat", resume-in-chat deep
+ * links). Kept next to the activation latch it feeds.
+ */
+export function isChatSurfaceRoute(path: string): boolean {
+  return path === "/" || path === "/chat";
+}

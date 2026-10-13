@@ -6,6 +6,15 @@ import {
 
 import type { AuxiliaryModelsResponse } from "./api-aux";
 import type {
+  MainThreadResponse,
+  PaginatedSessions,
+  SessionInfo,
+  SessionLatestDescendantResponse,
+  SessionMessagesResponse,
+  SessionSearchResponse,
+  SessionStoreStats,
+} from "./api-sessions";
+import type {
   ManagedFileReadResponse,
   ManagedFilesResponse,
   ManagedFileWriteResponse,
@@ -462,6 +471,25 @@ export const api = {
         profile,
       ),
     ),
+  /**
+   * One bounded page of a transcript, addressed from the newest backwards
+   * (``order=latest&offset=N*limit``): the Thread home's paged reader over the
+   * same messages endpoint, so the continuous transcript (compression lineage
+   * included — the endpoint hardcodes include_ancestors) pages without a
+   * second backend surface.
+   */
+  getSessionMessagesPage: (
+    id: string,
+    opts: { offset?: number; limit?: number } = {},
+    profile = getManagementProfile(),
+  ) =>
+    fetchJSON<SessionMessagesResponse>(
+      appendProfileParam(
+        `/api/sessions/${encodeURIComponent(id)}/messages` +
+          `?limit=${opts.limit ?? 500}&offset=${opts.offset ?? 0}&order=latest`,
+        profile,
+      ),
+    ),
   getSessionDetail: (id: string, profile = getManagementProfile()) =>
     fetchJSON<SessionInfo>(
       appendProfileParam(`/api/sessions/${encodeURIComponent(id)}`, profile),
@@ -487,6 +515,14 @@ export const api = {
         profile,
       ),
     ),
+  /**
+   * The profile's ONE main thread (Cue session model): routing-row id,
+   * compression-aware live tip id, and the tip's summary row. Resolves
+   * exists=false until the first chatting window creates the thread — the
+   * Thread home never guesses a session id across rotations.
+   */
+  getMainThread: (profile = getManagementProfile()) =>
+    fetchJSON<MainThreadResponse>(appendProfileParam("/api/main_thread", profile)),
   deleteSession: (id: string, profile = getManagementProfile()) =>
     fetchJSON<{ ok: boolean }>(
       appendProfileParam(`/api/sessions/${encodeURIComponent(id)}`, profile),
@@ -1499,14 +1535,6 @@ export interface DebugShareResponse {
   auto_delete_seconds: number;
 }
 
-export interface SessionStoreStats {
-  total: number;
-  active_store: number;
-  archived: number;
-  messages: number;
-  by_source: Record<string, number>;
-}
-
 export interface SessionImportResponse {
   ok: boolean;
   imported: number;
@@ -2115,40 +2143,6 @@ export interface ChatWorkspacesResponse {
   scan_enabled: boolean;
 }
 
-export interface SessionInfo {
-  id: string;
-  source: string | null;
-  model: string | null;
-  title: string | null;
-  started_at: number;
-  ended_at: number | null;
-  last_active: number;
-  is_active: boolean;
-  message_count: number;
-  tool_call_count: number;
-  input_tokens: number;
-  output_tokens: number;
-  preview: string | null;
-  parent_session_id?: string | null;
-  /** Owning profile stamped by the list/detail endpoints (the store the row
-   * was read from). Absent on search-endpoint rows, which carry no stamp. */
-  profile?: string;
-}
-
-export interface SessionLatestDescendantResponse {
-  requested_session_id: string;
-  session_id: string;
-  path: string[];
-  changed: boolean;
-}
-
-export interface PaginatedSessions {
-  sessions: SessionInfo[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
 export interface EnvVarInfo {
   is_set: boolean;
   redacted_value: string | null;
@@ -2224,29 +2218,6 @@ export interface WhatsAppOnboardingApplyResponse {
   restart_error?: string;
 }
 
-export interface SessionMessage {
-  role: "user" | "assistant" | "system" | "tool";
-  content: string | null;
-  tool_calls?: Array<{
-    id: string;
-    function: { name: string; arguments: string };
-  }>;
-  tool_name?: string;
-  tool_call_id?: string;
-  timestamp?: number;
-}
-
-export interface SessionMessagesResponse {
-  session_id: string;
-  messages: SessionMessage[];
-  pagination?: {
-    limit: number;
-    offset: number;
-    order: "latest" | "oldest";
-    returned: number;
-  };
-}
-
 export interface LogsResponse {
   file: string;
   lines: string[];
@@ -2258,6 +2229,20 @@ export type {
   ManagedFilesResponse,
   ManagedFileWriteResponse,
 } from "./api-files";
+
+// Sessions-family shapes live in ./api-sessions (size-ratchet move); api.ts
+// keeps re-exporting them exactly as it already does for api-files/api-aux.
+export type {
+  MainThreadResponse,
+  PaginatedSessions,
+  SessionInfo,
+  SessionLatestDescendantResponse,
+  SessionMessage,
+  SessionMessagesResponse,
+  SessionSearchResponse,
+  SessionSearchResult,
+  SessionStoreStats,
+} from "./api-sessions";
 
 export interface AnalyticsDailyEntry {
   day: string;
@@ -2508,18 +2493,6 @@ export interface ToolsetEnvResult {
   saved: string[];
   skipped: string[];
   is_set: Record<string, boolean>;
-}
-
-export interface SessionSearchResult extends SessionInfo {
-  session_id: string;
-  snippet: string;
-  role: string | null;
-  session_started: number | null;
-  lineage_root?: string;
-}
-
-export interface SessionSearchResponse {
-  results: SessionSearchResult[];
 }
 
 // ── Model info types ──────────────────────────────────────────────────

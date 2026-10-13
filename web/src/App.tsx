@@ -37,6 +37,7 @@ import {
   KeyRound,
   Menu,
   MessageSquare,
+  MessagesSquare,
   Package,
   PanelLeftClose,
   PanelLeftOpen,
@@ -98,6 +99,7 @@ const ChannelsPage = lazy(() => import("@/pages/ChannelsPage"));
 const WebhooksPage = lazy(() => import("@/pages/WebhooksPage"));
 const SystemPage = lazy(() => import("@/pages/SystemPage"));
 const ChatPage = lazy(() => import("@/pages/ChatPage"));
+const ThreadPage = lazy(() => import("@/pages/ThreadPage"));
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useI18n } from "@/i18n";
@@ -106,7 +108,7 @@ import { PluginPage, PluginSlot, usePlugins } from "@/plugins";
 import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
 import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
-import { latchChatActivation } from "@/lib/chat-activation";
+import { isChatSurfaceRoute, latchChatActivation } from "@/lib/chat-activation";
 import { sharedGatewayProfiles, sharedGatewayRestartDescription } from "@/lib/shared-gateway";
 import { api } from "@/lib/api";
 import type { StatusResponse, UpdateCheckResponse } from "@/lib/api";
@@ -126,10 +128,6 @@ function RouteFallback({ label = "Loading…" }: { label?: string }) {
   );
 }
 
-function RootRedirect() {
-  return <Navigate to="/sessions" replace />;
-}
-
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
   if (pluginsLoading) {
     // Render nothing during the plugin-load window — a spinner here would just flash.
@@ -138,26 +136,25 @@ function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
   return <Navigate to="/sessions" replace />;
 }
 
-const CHAT_NAV_ITEM: NavItem = {
-  path: "/chat",
-  labelKey: "chat",
-  label: "Chat",
-  icon: Terminal,
+const THREAD_NAV_ITEM: NavItem = {
+  path: "/",
+  label: "Thread",
+  icon: MessagesSquare,
 };
 
 /**
- * Built-in routes except /chat.  Chat is rendered persistently (outside
- * <Routes>) when embedded — see the persistent chat host block rendered
- * inline near the bottom of this file — so the PTY child, WebSocket,
- * and xterm instance survive when the user visits another tab and comes
- * back.  A `display:none` toggle hides the terminal without unmounting.
- * The host itself is still deferred until the first /chat visit so the
- * xterm chunk is not downloaded on unrelated pages.  Routing still owns
- * the URL so /chat deep-links, browser back/forward, and nav highlight
- * keep working.
+ * Built-in routes.  "/" is the Thread home (structured header/cards +
+ * transcript, with the persistently-hosted embedded TUI as the interaction
+ * pane rendered below the routed tree); "/chat" is claimed by ChatRouteSink
+ * when embedded chat is on — the ChatPage host renders OUTSIDE <Routes> so
+ * the PTY child, WebSocket, and xterm instance survive tab switches (a
+ * `display:none` toggle hides the terminal without unmounting).  The host
+ * still mounts only after the first thread-surface visit so the xterm chunk
+ * is not downloaded on unrelated pages.  Routing owns the URL: deep links,
+ * browser back/forward, and nav highlight keep working.
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
-  "/": RootRedirect,
+  "/": ThreadPage,
   "/sessions": SessionsPage,
   "/files": FilesPage,
   "/analytics": AnalyticsPage,
@@ -402,7 +399,7 @@ export default function App() {
   const sidebarStatus = useSidebarStatus();
   const isDocsRoute = pathname === "/docs" || pathname === "/docs/";
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
-  const isChatRoute = normalizedPath === "/chat";
+  const isChatRoute = isChatSurfaceRoute(normalizedPath);
   const embeddedChat = isDashboardEmbeddedChatEnabled();
   // Defer mounting the persistent chat host (and its xterm chunk) until the
   // user has actually opened /chat at least once. Sticky after that so the
@@ -461,7 +458,7 @@ export default function App() {
 
   const builtinNav = useMemo(() => {
     const base = embeddedChat
-      ? [CHAT_NAV_ITEM, ...BUILTIN_NAV_REST]
+      ? [THREAD_NAV_ITEM, ...BUILTIN_NAV_REST]
       : BUILTIN_NAV_REST;
     return showTokenAnalytics
       ? base
@@ -881,7 +878,7 @@ function SidebarNavLink({
     >
       <NavLink
         to={path}
-        end={path === "/sessions"}
+        end={path === "/" || path === "/sessions"}
         onClick={closeMobile}
         aria-label={collapsed ? navLabel : undefined}
         onFocus={collapsed ? showTooltip : undefined}
