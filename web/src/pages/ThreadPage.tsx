@@ -3,8 +3,9 @@
  * (Cue Phase 6 M1 / R1).
  *
  * A thin route root: the structured half of the Thread surface (header,
- * summary cards, paged transcript, and the M2 drill-down — workers,
- * delegations, cron cross-links) sits above the persistently-hosted
+ * summary cards, the M4 interaction band — decisions, goal, approvals — the
+ * paged transcript, and the M2 drill-down — workers, delegations, cron
+ * cross-links) sits above the persistently-hosted
  * embedded TUI (App.tsx renders ChatPage below this page), which stays the
  * interaction pane — send, slash commands, approvals and token-level
  * streaming all belong to it (web/AGENTS.md). Data comes from
@@ -14,6 +15,7 @@
 
 import { ThreadDrilldown } from "@/components/ThreadDrilldown";
 import { ThreadHeader } from "@/components/ThreadHeader";
+import { ThreadInteractions } from "@/components/ThreadInteractions";
 import { ThreadSummaryCards } from "@/components/ThreadSummaryCards";
 import { ThreadTranscript } from "@/components/ThreadTranscript";
 import { useProfileScope } from "@/contexts/useProfileScope";
@@ -36,6 +38,9 @@ export default function ThreadPage() {
         onRefresh={refresh}
       />
       <ThreadSummaryCards thread={thread} />
+      {/* M4 interaction band (R4): resolve pending decisions, steer the goal,
+          answer approvals — every queued turn lands in the thread below. */}
+      <ThreadInteractions profile={profile} refreshToken={refreshToken} />
       {/* Keyed by the live tip: rotation/creation/profile-switch remounts the
           pane, so its paging state always belongs to the transcript shown.
           M3 (R3): the pane is live — rows stream in wherever the thread runs. */}
