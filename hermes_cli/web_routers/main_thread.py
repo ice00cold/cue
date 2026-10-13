@@ -310,6 +310,19 @@ def deliver_main_thread_prompt(profile: Optional[str], prompt: str, *, label: st
     task.add_done_callback(_DELIVERY_TASKS.discard)
 
 
+async def main_thread_delivery_status(profile: Optional[str]) -> tuple[bool, Optional[str]]:
+    """``(can_deliver, reason)`` — the synchronous half of the cards' delivery
+    report: False (with the same message the send endpoint serves) while the
+    thread does not exist yet, so a resume prompt is never silently scheduled
+    into a conversation that cannot take it. A reachable gateway is NOT
+    pre-checked: that failure is logged by the delivery task, never shown as a
+    refused resolution."""
+    live_id, _key = await _resolve_delivery_target(profile)
+    if not live_id:
+        return False, _NO_THREAD_MESSAGE
+    return True, None
+
+
 class MainThreadSendBody(BaseModel):
     message: str
 
