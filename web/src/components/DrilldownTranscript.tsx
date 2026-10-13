@@ -5,11 +5,16 @@
  * messages endpoint includes the child's compression ancestors, so the whole
  * child conversation pages. Live PTY interaction stays with the embedded TUI
  * via `/chat?resume=` (web/AGENTS.md — no second chat surface here).
+ *
+ * M3 (R3): a child that is RUNNING (`live`, set from the lineage node's
+ * `is_active`) streams its transcript as the worker works — the OpenChamber
+ * -class "watch the worker go" view, without a second chat surface.
  */
 
 import { Terminal } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
+import { LiveTailBadge } from "@/components/ThreadTranscript";
 import { MessageList } from "@/components/SessionMessageList";
 import { usePagedTranscript } from "@/hooks/usePagedTranscript";
 
@@ -18,15 +23,19 @@ export function DrilldownTranscript({
   title,
   profile,
   onOpenInTerminal,
+  live = false,
 }: {
   sessionId: string;
   title: string | null;
   profile: string | undefined;
   onOpenInTerminal: () => void;
+  /** Stream while this child runs (driven by the lineage node's is_active). */
+  live?: boolean;
 }) {
   const {
     messages, loading, loadingOlder, error, canLoadOlder, loadOlder, scrollRef, onScroll,
-  } = usePagedTranscript({ sessionId, profile, refreshToken: 0 });
+    liveState, liveActivity,
+  } = usePagedTranscript({ sessionId, profile, refreshToken: 0, live });
 
   return (
     <div className="mt-1 ml-5 border border-current/15 bg-background-base/40">
@@ -34,6 +43,7 @@ export function DrilldownTranscript({
         <span className="font-sans text-display text-xs tracking-wider text-text-tertiary">
           {title || "Child session"} · transcript
         </span>
+        {live && <LiveTailBadge state={liveState} activity={liveActivity} />}
         <span className="text-xs text-text-tertiary tabular-nums">
           {messages.length} shown
         </span>

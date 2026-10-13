@@ -1013,6 +1013,7 @@ from hermes_cli.web_routers import (  # noqa: E402
     main_thread as _main_thread_routes,
     lineage as _lineage_routes,
     delegations as _delegations_routes,
+    session_live as _session_live_routes,
     profiles as _profiles_routes,
     memory_providers as _memory_providers_routes,
     config_env as _config_env_routes,
@@ -1045,6 +1046,7 @@ app.include_router(_sessions_routes.search_router)
 app.include_router(_main_thread_routes.router)
 app.include_router(_lineage_routes.router)
 app.include_router(_delegations_routes.router)
+app.include_router(_session_live_routes.router)
 app.include_router(_memory_providers_routes.router)
 app.include_router(_config_env_routes.config_router)
 app.include_router(_models_routes.router)

@@ -5,6 +5,13 @@
  * supports "load older" and windowed refreshes (``sessions.changed``-driven
  * callers bump ``refreshToken``). Extracted from the M1 ThreadTranscript so
  * the drill-down's child-session panes share one reader — not a second one.
+ *
+ * M3 (R3) adds the live half: with ``live`` set (the Thread home always, a
+ * drill-down child while it runs), the loaded window's newest row id anchors
+ * a read-only SSE tail and streamed rows append to the merge — follow-scroll
+ * keeps a pinned viewer at the bottom as the session runs. The merge dedupes
+ * by row id, so rows the next window refresh also delivers collapse to one
+ * copy. Live rows are display-only: interaction stays with the embedded TUI.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +23,8 @@ import {
   mergeThreadPages,
   threadPageOffset,
 } from "@/lib/thread-home";
+import { newestRowId } from "@/lib/live-tail";
+import { useSessionLiveTail } from "@/hooks/useSessionLiveTail";
 
 /** Distance from the bottom (px) that still counts as "following". */
 export const FOLLOW_THRESHOLD_PX = 48;
@@ -24,10 +33,13 @@ export function usePagedTranscript({
   sessionId,
   profile,
   refreshToken,
+  live = false,
 }: {
   sessionId: string | null;
   profile: string | undefined;
   refreshToken: number;
+  /** Subscribe the loaded window to the read-only live tail (M3/R3). */
+  live?: boolean;
 }) {
   const [pages, setPages] = useState<SessionMessage[][]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,7 +56,21 @@ export function usePagedTranscript({
     pagesLenRef.current = pages.length;
   }, [pages.length]);
 
-  const messages = useMemo(() => mergeThreadPages(pages), [pages]);
+  // The live tail anchors at the newest LOADED row, so it only starts once a
+  // window has landed (an empty transcript anchors at 0 — the first message
+  // then streams in). Pages are chronological oldest-first with the newest
+  // page last, so the anchor is that page's highest row id.
+  const tail = useSessionLiveTail({
+    sessionId,
+    profile,
+    afterRowId: newestRowId(pages.length > 0 ? pages[pages.length - 1] : []),
+    enabled: live && pages.length > 0,
+  });
+
+  const messages = useMemo(
+    () => mergeThreadPages(tail.messages.length > 0 ? [...pages, tail.messages] : pages),
+    [pages, tail.messages],
+  );
   const oldestPage = pages.length > 0 ? pages[0] : [];
   const canLoadOlder = sessionId !== null && hasOlderThreadPage(oldestPage);
 
@@ -143,5 +169,8 @@ export function usePagedTranscript({
     loadOlder,
     scrollRef,
     onScroll,
+    /** M3 live tail: connection state + latest activity stamp (null when not live). */
+    liveState: live ? tail.state : "idle",
+    liveActivity: live ? tail.activity : null,
   };
 }

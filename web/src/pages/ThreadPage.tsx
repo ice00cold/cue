@@ -37,12 +37,14 @@ export default function ThreadPage() {
       />
       <ThreadSummaryCards thread={thread} />
       {/* Keyed by the live tip: rotation/creation/profile-switch remounts the
-          pane, so its paging state always belongs to the transcript shown. */}
+          pane, so its paging state always belongs to the transcript shown.
+          M3 (R3): the pane is live — rows stream in wherever the thread runs. */}
       <ThreadTranscript
         key={thread?.live_session_id ?? "none"}
         sessionId={thread?.live_session_id ?? null}
         profile={profile}
         refreshToken={refreshToken}
+        live
       />
       {/* M2 drill-down (R2): workers, delegations and cron cross-links below
           the transcript, riding the same refresh signal. */}
