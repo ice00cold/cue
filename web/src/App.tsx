@@ -84,7 +84,6 @@ const ConfigPage = lazy(() => import("@/pages/ConfigPage"));
 const DocsPage = lazy(() => import("@/pages/DocsPage"));
 const EnvPage = lazy(() => import("@/pages/EnvPage"));
 const FilesPage = lazy(() => import("@/pages/FilesPage"));
-const SessionsPage = lazy(() => import("@/pages/SessionsPage"));
 const LogsPage = lazy(() => import("@/pages/LogsPage"));
 const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage"));
 const ModelsPage = lazy(() => import("@/pages/ModelsPage"));
@@ -133,7 +132,7 @@ function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
     // Render nothing during the plugin-load window — a spinner here would just flash.
     return null;
   }
-  return <Navigate to="/sessions" replace />;
+  return <Navigate to="/" replace />;
 }
 
 const THREAD_NAV_ITEM: NavItem = {
@@ -155,7 +154,6 @@ const THREAD_NAV_ITEM: NavItem = {
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": ThreadPage,
-  "/sessions": SessionsPage,
   "/files": FilesPage,
   "/analytics": AnalyticsPage,
   "/models": ModelsPage,
@@ -184,12 +182,6 @@ function ChatRouteSink() {
 }
 
 const BUILTIN_NAV_REST: NavItem[] = [
-  {
-    path: "/sessions",
-    labelKey: "sessions",
-    label: "Sessions",
-    icon: MessageSquare,
-  },
   { path: "/files", label: "Files", icon: FolderOpen },
   {
     path: "/analytics",
@@ -469,10 +461,26 @@ export default function App() {
     () => partitionSidebarNav(builtinNav, manifests),
     [builtinNav, manifests],
   );
-  const routes = useMemo(
-    () => buildRoutes(builtinRoutes, manifests),
-    [builtinRoutes, manifests],
-  );
+  const routes = useMemo(() => {
+    const built = buildRoutes(builtinRoutes, manifests);
+    // Single-thread product: there is no sessions browsing surface. Every
+    // legacy /sessions URL (bookmark, stale link, deep link) lands on the
+    // thread home instead of a 404. Listed after `built` so a plugin that
+    // deliberately ships its own /sessions tab still wins the match.
+    return [
+      ...built,
+      {
+        key: "redirect:/sessions",
+        path: "/sessions",
+        element: <Navigate to="/" replace />,
+      },
+      {
+        key: "redirect:/sessions/*",
+        path: "/sessions/*",
+        element: <Navigate to="/" replace />,
+      },
+    ];
+  }, [builtinRoutes, manifests]);
   const pluginTabMeta = useMemo(
     () =>
       manifests
@@ -878,7 +886,7 @@ function SidebarNavLink({
     >
       <NavLink
         to={path}
-        end={path === "/" || path === "/sessions"}
+        end={path === "/"}
         onClick={closeMobile}
         aria-label={collapsed ? navLabel : undefined}
         onFocus={collapsed ? showTooltip : undefined}
@@ -1019,21 +1027,21 @@ function SidebarSystemActions({
       return;
     }
     void runAction(action);
-    navigate("/sessions");
+    navigate("/");
     onNavigate();
   };
 
   const confirmRestart = () => {
     setRestartConfirmOpen(false);
     void runAction("restart");
-    navigate("/sessions");
+    navigate("/");
     onNavigate();
   };
 
   const confirmUpdate = () => {
     setUpdateConfirmOpen(false);
     void runAction("update");
-    navigate("/sessions");
+    navigate("/");
     onNavigate();
   };
 

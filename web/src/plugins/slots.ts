@@ -37,8 +37,6 @@ import React, { Fragment, useEffect, useState } from "react";
  *  Page-scoped slots (rendered inside a specific built-in page — use these
  *  to inject widgets, cards, or toolbars into existing pages without
  *  overriding the whole route):
- *  - `sessions:top`     — top of /sessions page (above session list)
- *  - `sessions:bottom`  — bottom of /sessions page
  *  - `analytics:top`    — top of /analytics page
  *  - `analytics:bottom` — bottom of /analytics page
  *  - `logs:top`         — top of /logs page (above filter toolbar)
@@ -71,8 +69,6 @@ export const KNOWN_SLOT_NAMES = [
   "footer-right",
   "overlay",
   // Page-scoped
-  "sessions:top",
-  "sessions:bottom",
   "analytics:top",
   "analytics:bottom",
   "logs:top",
