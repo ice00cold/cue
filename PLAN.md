@@ -74,6 +74,12 @@ Threads are a computer concept, not a human one. You don't open a new conversati
 - [x] Project lives in OpenChamber for dev (phone/desktop) *(de facto since Phase 2: every phase built by an agent in an OpenChamber-native worktree, orchestrated from the Cue Telegram thread; sessions group as worktree nodes under the cue project)*
 - [x] Optional: OpenChamber as a front-end for the main thread (agent-tool/relay investigation) *(OC-FRONTEND-INVESTIGATION.md — verdict LATER: Telegram remains the front-end; when wanted, start with a read-only MCP tool surface, then the provider→api_server path; cwd-window and forwarding-pipe designs are NO-GO)*
 
+### Phase 6 — Front-end: one thread with drill-down (Alex, 2026-10-12)
+The front-end requirement: the **single main thread is the primary surface**, with **drill-down into other sessions** (worker agents, delegations, cron runs, build agents) including **live views** of active sessions — OpenChamber-class live streaming quality.
+- [ ] Requirements freeze: R1 main-thread home (full continuous transcript, any device) · R2 session drill-down (list + transcripts of every non-main session) · R3 live streaming views of active sessions (main + workers) · R4 interaction from the surface (send = lands in main thread; resolve decisions; approvals)
+- [ ] Architecture decision: **(A)** extend Cue's own dashboard (`web/` SPA + `api_server` + `hermes_state` session DB + live tail) as the native home, deep-linking to OpenChamber for opencode build-agent live views — vs **(B)** OpenChamber-provider route (drive the main thread through an opencode session so OC renders it; investigation option D+B1; caveats: cache-tax, partial view, OC-internals coupling)
+- [ ] Implementation per chosen architecture
+
 ## Open decisions
 1. **Name** — working name `cue` (matches the proactive-AI concept). Rename = `mv` + rebrand + fork name.
 2. **Cross-platform main thread** — recommend ONE shared session across all platforms. Alternative: one main thread per platform (Telegram thread ≠ CLI thread).
