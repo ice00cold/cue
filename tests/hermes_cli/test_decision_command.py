@@ -3,7 +3,11 @@ withdraw, and the resume prompts adapters enqueue."""
 
 import pytest
 
-from hermes_cli.decision_command import dispatch_decision_command
+from hermes_cli.decision_command import (
+    answer_decision,
+    dispatch_decision_command,
+    withdraw_decision,
+)
 from tools.decisions_store import DecisionsStore
 
 
@@ -105,3 +109,58 @@ class TestUnknown:
     def test_unknown_verb_is_usage(self, store):
         result = _dispatch(store, "ponder d1")
         assert result.error and "Usage:" in result.output
+
+
+class TestStructuredEntries:
+    """The dashboard's decision cards resolve through the same semantics the
+    command path applies (answer_decision / withdraw_decision) — pinned here so
+    a surface can never grow its own parser drift."""
+
+    def test_structured_answer_matches_the_command_path(self, store, tmp_path):
+        twin = DecisionsStore(tmp_path / "twin")
+        twin.add_decision(
+            question="Which database for the job queue?", context="Backs the cron jobs refactor.",
+            options=[{"label": "Postgres", "impact": "known ops"},
+                     {"label": "SQLite", "impact": "zero ops"}],
+            recommendation="Postgres", impact="blocks the refactor")
+        via_command = dispatch_decision_command(twin, "answer d1 2 cheaper to run")
+        structured = answer_decision(store, "d1", "2", "cheaper to run")
+        assert structured.output == via_command.output
+        assert structured.resume_prompt == via_command.resume_prompt
+        assert structured.error == via_command.error
+        assert store.get("d1")["status"] == "resolved"
+        assert store.get("d1")["resolution"] == "SQLite"
+        assert store.get("d1")["rationale"] == "cheaper to run"
+
+    def test_structured_free_text_answer_with_spaces_stays_verbatim(self, store):
+        # The one place the structured entry deliberately exceeds the command
+        # grammar: a card submits already-parsed fields, so a multi-word free
+        # choice is the choice, not choice + mangled rationale.
+        result = answer_decision(store, "d1", "do both in stages", "safest")
+        assert not result.error
+        assert store.get("d1")["resolution"] == "do both in stages"
+        assert store.get("d1")["rationale"] == "safest"
+
+    def test_structured_answer_unknown_id_raises_key_error(self, store):
+        with pytest.raises(KeyError):
+            answer_decision(store, "d9", "1")
+
+    def test_structured_answer_twice_raises_value_error(self, store):
+        answer_decision(store, "d1", "1")
+        with pytest.raises(ValueError):
+            answer_decision(store, "d1", "2")
+
+    def test_structured_answer_empty_choice_is_usage(self, store):
+        result = answer_decision(store, "d1", "  ")
+        assert result.error and "Usage:" in result.output
+
+    def test_structured_withdraw_matches_the_command_path(self, store):
+        result = withdraw_decision(store, "d1", "the queue moved off SQL")
+        assert not result.error
+        assert store.get("d1")["status"] == "withdrawn"
+        assert "[Decision d1 withdrawn by the user]" in result.resume_prompt
+
+    def test_structured_withdraw_twice_is_the_closed_error(self, store):
+        withdraw_decision(store, "d1")
+        result = withdraw_decision(store, "d1")
+        assert result.error and "already withdrawn" in result.output

@@ -83,12 +83,16 @@ def _show(store: DecisionsStore, arg: str) -> DecisionCommandResult:
     return DecisionCommandResult(DecisionsStore.format_detail(record))
 
 
-def _answer(store: DecisionsStore, rest: str) -> DecisionCommandResult:
-    parts = rest.split(None, 2)
-    if len(parts) < 2:
+def answer_decision(store: DecisionsStore, decision_id: str, choice: str,
+                    rationale: str = "") -> DecisionCommandResult:
+    """Resolve one pending decision from pre-parsed fields — the structured twin
+    of ``answer <id> <choice> [rationale]``, for surfaces whose input never was a
+    command string (the dashboard's decision cards). Same store semantics, same
+    resume prompt; raises KeyError for an unknown id and ValueError for a fork
+    that is already closed, exactly like the command path (adapters map both).
+    """
+    if not str(choice or "").strip():
         return DecisionCommandResult("Usage: /decisions answer <id> <choice> [rationale]", error=True)
-    decision_id, choice = parts[0], parts[1]
-    rationale = parts[2].strip() if len(parts) > 2 else ""
     record = _require(store, decision_id)
     resolution = DecisionsStore.choice_text(record, choice)
     resolved = store.resolve_decision(decision_id, resolution, rationale)
@@ -99,12 +103,17 @@ def _answer(store: DecisionsStore, rest: str) -> DecisionCommandResult:
     return DecisionCommandResult(output, resume_prompt=_resume_prompt(resolved))
 
 
-def _withdraw(store: DecisionsStore, rest: str) -> DecisionCommandResult:
-    parts = rest.split(None, 1)
-    if not parts or not parts[0].strip():
-        return DecisionCommandResult("Usage: /decisions withdraw <id> [reason]", error=True)
-    decision_id = parts[0]
-    reason = parts[1].strip() if len(parts) > 1 else ""
+def _answer(store: DecisionsStore, rest: str) -> DecisionCommandResult:
+    parts = rest.split(None, 2)
+    if len(parts) < 2:
+        return DecisionCommandResult("Usage: /decisions answer <id> <choice> [rationale]", error=True)
+    return answer_decision(store, parts[0], parts[1],
+                           parts[2].strip() if len(parts) > 2 else "")
+
+
+def withdraw_decision(store: DecisionsStore, decision_id: str, reason: str = "") -> DecisionCommandResult:
+    """Close one pending decision as moot — the structured twin of ``withdraw
+    <id> [reason]`` (see :func:`answer_decision` for the contract)."""
     record = _require(store, decision_id)
     if record["status"] != PENDING_STATUS:
         return DecisionCommandResult(
@@ -112,6 +121,13 @@ def _withdraw(store: DecisionsStore, rest: str) -> DecisionCommandResult:
     withdrawn = store.withdraw_decision(decision_id, reason)
     output = f"✓ [{withdrawn['id']}] withdrawn" + (f" ({withdrawn['rationale']})" if withdrawn["rationale"] else "")
     return DecisionCommandResult(output, resume_prompt=_withdraw_prompt(withdrawn))
+
+
+def _withdraw(store: DecisionsStore, rest: str) -> DecisionCommandResult:
+    parts = rest.split(None, 1)
+    if not parts or not parts[0].strip():
+        return DecisionCommandResult("Usage: /decisions withdraw <id> [reason]", error=True)
+    return withdraw_decision(store, parts[0], parts[1].strip() if len(parts) > 1 else "")
 
 
 def _resume_prompt(decision: dict) -> str:
