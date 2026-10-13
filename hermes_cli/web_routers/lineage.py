@@ -14,6 +14,7 @@ NOT rebuilt here — this surface only maps the graph.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from typing import Any, Dict, List, Optional, Set
 
@@ -21,6 +22,7 @@ from fastapi import APIRouter
 
 from hermes_cli.web_deps import late
 from hermes_cli.web_routers._common import http_failure, log as _log
+from hermes_state_errors import StateDbReplacedError
 
 router = APIRouter()
 
@@ -37,11 +39,12 @@ _MAX_NODES = 200
 
 def _child_chain_ids(db, session_id: str) -> List[str]:
     """The child's own compression lineage (root through live tip), or
-    ``[session_id]`` when unreadable."""
+    ``[session_id]`` when the store read fails for this node — one child's
+    unreadable chain must not sink the whole tree."""
     try:
         return db.get_compression_lineage(session_id) or [session_id]
-    except Exception:
-        _log.debug("lineage: compression chain walk failed for %s", session_id, exc_info=True)
+    except (sqlite3.DatabaseError, StateDbReplacedError):
+        _log.warning("lineage: chain walk failed for %s", session_id, exc_info=True)
         return [session_id]
 
 
