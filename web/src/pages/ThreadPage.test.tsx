@@ -8,6 +8,10 @@ import { setLiveChatChannel } from "@/lib/chat-channel-store";
 const apiMocks = vi.hoisted(() => ({
   getMainThread: vi.fn(),
   getSessionMessagesPage: vi.fn(),
+  getSessionLineage: vi.fn(),
+  getDelegations: vi.fn(),
+  getCronJobs: vi.fn(),
+  getCronJobRuns: vi.fn(),
   getProfiles: vi.fn(async () => ({ profiles: [] })),
   getActiveProfile: vi.fn(async () => ({ current: "default", active: "default" })),
 }));
@@ -145,6 +149,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   feedMocks.handlers.clear();
   transcriptMock.rendered = [];
+  // The M2 drill-down shares this page: its three loads answer empty so the
+  // Thread tests stay about the M1 surfaces.
+  apiMocks.getSessionLineage.mockResolvedValue({
+    session_id: "sess-root", chain: ["sess-root"], live_session_id: "sess-tip",
+    children: [], truncated: false, profile: "default",
+  });
+  apiMocks.getDelegations.mockResolvedValue({
+    delegations: [], count: 0, limit: 50, profile: "default",
+  });
+  apiMocks.getCronJobs.mockResolvedValue([]);
   // The thread surface rides the embedded chat's /api/events channel; seed
   // the store the way ChatPage does when its PTY mounts.
   setLiveChatChannel("thread-test-channel");

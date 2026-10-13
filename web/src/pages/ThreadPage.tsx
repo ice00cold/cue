@@ -3,7 +3,8 @@
  * (Cue Phase 6 M1 / R1).
  *
  * A thin route root: the structured half of the Thread surface (header,
- * summary cards, paged transcript) sits above the persistently-hosted
+ * summary cards, paged transcript, and the M2 drill-down — workers,
+ * delegations, cron cross-links) sits above the persistently-hosted
  * embedded TUI (App.tsx renders ChatPage below this page), which stays the
  * interaction pane — send, slash commands, approvals and token-level
  * streaming all belong to it (web/AGENTS.md). Data comes from
@@ -11,6 +12,7 @@
  * (cross-process push via the PTY child's watcher) drives refetches.
  */
 
+import { ThreadDrilldown } from "@/components/ThreadDrilldown";
 import { ThreadHeader } from "@/components/ThreadHeader";
 import { ThreadSummaryCards } from "@/components/ThreadSummaryCards";
 import { ThreadTranscript } from "@/components/ThreadTranscript";
@@ -39,6 +41,13 @@ export default function ThreadPage() {
       <ThreadTranscript
         key={thread?.live_session_id ?? "none"}
         sessionId={thread?.live_session_id ?? null}
+        profile={profile}
+        refreshToken={refreshToken}
+      />
+      {/* M2 drill-down (R2): workers, delegations and cron cross-links below
+          the transcript, riding the same refresh signal. */}
+      <ThreadDrilldown
+        thread={thread}
         profile={profile}
         refreshToken={refreshToken}
       />

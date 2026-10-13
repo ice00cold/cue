@@ -6,14 +6,18 @@ import {
 
 import type { AuxiliaryModelsResponse } from "./api-aux";
 import type {
+  CronJobRunsResponse,
+  DelegationsResponse,
   MainThreadResponse,
   PaginatedSessions,
   SessionInfo,
+  SessionLineageResponse,
   SessionLatestDescendantResponse,
   SessionMessagesResponse,
   SessionSearchResponse,
   SessionStoreStats,
 } from "./api-sessions";
+import type { CronDeliveryTarget, CronJob, CronJobMutation } from "./api-cron";
 import type {
   ManagedFileReadResponse,
   ManagedFilesResponse,
@@ -523,6 +527,40 @@ export const api = {
    */
   getMainThread: (profile = getManagementProfile()) =>
     fetchJSON<MainThreadResponse>(appendProfileParam("/api/main_thread", profile)),
+  /**
+   * The conversation's child-session tree (Cue M2 drill-down): workers, cron
+   * children and branches over ``parent_session_id``, each collapsed to its
+   * compression tip. Transcripts still come from the messages endpoint.
+   */
+  getSessionLineage: (id: string, profile = getManagementProfile()) =>
+    fetchJSON<SessionLineageResponse>(
+      appendProfileParam(`/api/sessions/${encodeURIComponent(id)}/lineage`, profile),
+    ),
+  /**
+   * Durable delegation records (Cue M2 drill-down). ``sessionId`` scopes to
+   * one conversation, compression-chain aware — pass the main-thread routing
+   * id the resolver returned.
+   */
+  getDelegations: (
+    opts: { sessionId?: string; limit?: number } = {},
+    profile = getManagementProfile(),
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.sessionId) params.set("session_id", opts.sessionId);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return fetchJSON<DelegationsResponse>(
+      appendProfileParam("/api/delegations" + (qs ? `?${qs}` : ""), profile),
+    );
+  },
+  /** Run history for one cron job (existing endpoint; the M2 drill-down is its first web consumer). */
+  getCronJobRuns: (jobId: string, limit = 5, profile = getManagementProfile()) =>
+    fetchJSON<CronJobRunsResponse>(
+      appendProfileParam(
+        `/api/cron/jobs/${encodeURIComponent(jobId)}/runs?limit=${limit}`,
+        profile,
+      ),
+    ),
   deleteSession: (id: string, profile = getManagementProfile()) =>
     fetchJSON<{ ok: boolean }>(
       appendProfileParam(`/api/sessions/${encodeURIComponent(id)}`, profile),
@@ -2233,9 +2271,16 @@ export type {
 // Sessions-family shapes live in ./api-sessions (size-ratchet move); api.ts
 // keeps re-exporting them exactly as it already does for api-files/api-aux.
 export type {
+  CronJobRunsResponse,
+  CronRunRow,
+  DelegationRecord,
+  DelegationTaskSummary,
+  DelegationsResponse,
   MainThreadResponse,
   PaginatedSessions,
   SessionInfo,
+  SessionLineageNode,
+  SessionLineageResponse,
   SessionLatestDescendantResponse,
   SessionMessage,
   SessionMessagesResponse,
@@ -2243,6 +2288,14 @@ export type {
   SessionSearchResult,
   SessionStoreStats,
 } from "./api-sessions";
+
+// Cron-family shapes live in ./api-cron (same size-ratchet move).
+export type {
+  CronDeliveryTarget,
+  CronJob,
+  CronJobMutation,
+  CronJobRepeat,
+} from "./api-cron";
 
 export interface AnalyticsDailyEntry {
   day: string;
@@ -2370,66 +2423,6 @@ export interface ModelsAnalyticsResponse {
   period_days: number;
 }
 
-export interface CronJobRepeat {
-  times: number | null;
-  completed?: number;
-}
-
-export interface CronJobMutation {
-  name?: string;
-  prompt?: string;
-  schedule?: string;
-  deliver?: string;
-  skills?: string[];
-  provider?: string | null;
-  model?: string | null;
-  base_url?: string | null;
-  script?: string | null;
-  no_agent?: boolean;
-  context_from?: string[] | null;
-  enabled_toolsets?: string[] | null;
-  workdir?: string | null;
-}
-
-export interface CronJob {
-  id: string;
-  profile?: string | null;
-  profile_name?: string | null;
-  hermes_home?: string | null;
-  is_default_profile?: boolean;
-  name?: string | null;
-  prompt?: string | null;
-  script?: string | null;
-  skills?: string[] | null;
-  schedule?: { kind?: string; expr?: string; run_at?: string; display?: string };
-  schedule_display?: string | null;
-  repeat?: CronJobRepeat | null;
-  enabled: boolean;
-  state?: string | null;
-  deliver?: string | null;
-  model?: string | null;
-  provider?: string | null;
-  base_url?: string | null;
-  no_agent?: boolean | null;
-  context_from?: string[] | string | null;
-  enabled_toolsets?: string[] | null;
-  workdir?: string | null;
-  last_run_at?: string | null;
-  next_run_at?: string | null;
-  /** Seconds since the job's profile ticker last iterated; null when it cannot be dated. */
-  scheduler_heartbeat_age_s?: number | null;
-  last_status?: string | null;
-  last_error?: string | null;
-  last_delivery_error?: string | null;
-  last_fire_error?: { at?: string | null; detail?: string | null } | null;
-}
-
-export interface CronDeliveryTarget {
-  id: string;
-  name: string;
-  home_target_set: boolean;
-  home_env_var: string | null;
-}
 
 export interface SkillInfo {
   name: string;

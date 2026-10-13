@@ -1,31 +1,22 @@
 /**
  * ThreadTranscript — the paged read-only transcript of the main thread.
  *
- * Pages backwards over the EXISTING messages endpoint (compression lineage
- * included) so the continuous conversation is readable on any device without
- * the TUI having streamed it. Not a chat surface: no composer, no send path —
- * interaction belongs to the embedded TUI below this pane (web/AGENTS.md).
- * Refresh signal comes from the page (sessions.changed-driven); pinned-to-
- * bottom scroll keeps live refetches following the newest turn.
+ * The paging itself lives in `usePagedTranscript` (shared with the M2
+ * drill-down's child-session panes); this component is the Thread surface's
+ * chrome: collapse toggle, count, follow-scroll and the honest empty states.
+ * Not a chat surface: no composer, no send path — interaction belongs to the
+ * embedded TUI below this pane (web/AGENTS.md). Refresh signal comes from the
+ * page (sessions.changed-driven).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, ChevronUp, History } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { MessageList } from "@/components/SessionMessageList";
-import { api } from "@/lib/api";
-import type { SessionMessage } from "@/lib/api";
-import {
-  THREAD_TRANSCRIPT_PAGE_SIZE,
-  hasOlderThreadPage,
-  mergeThreadPages,
-  threadPageOffset,
-} from "@/lib/thread-home";
+import { usePagedTranscript } from "@/hooks/usePagedTranscript";
 
 const COLLAPSED_KEY = "cue-thread-transcript-collapsed";
-/** Distance from the bottom (px) that still counts as "following". */
-const FOLLOW_THRESHOLD_PX = 48;
 
 function readCollapsed(): boolean {
   try {
@@ -45,19 +36,9 @@ export function ThreadTranscript({
   refreshToken: number;
 }) {
   const [collapsed, setCollapsed] = useState(readCollapsed);
-  const [pages, setPages] = useState<SessionMessage[][]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const pinnedRef = useRef(true);
-  const requestSeq = useRef(0);
-  // The refresh loader re-fetches every loaded page in one window pass; it
-  // reads the depth through a ref so the callback stays identity-stable.
-  const pagesLenRef = useRef(0);
-  useEffect(() => {
-    pagesLenRef.current = pages.length;
-  }, [pages.length]);
+  const {
+    messages, loading, loadingOlder, error, canLoadOlder, loadOlder, scrollRef, onScroll,
+  } = usePagedTranscript({ sessionId, profile, refreshToken });
 
   const toggleCollapsed = () =>
     setCollapsed((prev) => {
@@ -69,96 +50,6 @@ export function ThreadTranscript({
       }
       return next;
     });
-
-  const messages = useMemo(() => mergeThreadPages(pages), [pages]);
-  const oldestPage = pages.length > 0 ? pages[0] : [];
-  const canLoadOlder = sessionId !== null && hasOlderThreadPage(oldestPage);
-
-  // Initial load and refreshes: pages backwards from the newest over the
-  // EXISTING messages endpoint (compression lineage included), one page per
-  // loaded step. Loader-callback idiom — state flips inside the callback,
-  // never synchronously in the effect body.
-  const loadWindow = useCallback(() => {
-    if (!sessionId) return;
-    const seq = ++requestSeq.current;
-    setLoading(true);
-    const pageCount = Math.max(pagesLenRef.current, 1);
-    Promise.all(
-      Array.from({ length: pageCount }, (_, i) =>
-        api
-          .getSessionMessagesPage(sessionId, {
-            offset: threadPageOffset(i),
-            limit: THREAD_TRANSCRIPT_PAGE_SIZE,
-          }, profile)
-          .then((res) => res.messages),
-      ),
-    )
-      .then((nextPages) => {
-        if (seq !== requestSeq.current) return;
-        setPages(nextPages);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if (seq !== requestSeq.current) return;
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (seq !== requestSeq.current) return;
-        setLoading(false);
-      });
-  }, [sessionId, profile]);
-
-  useEffect(() => {
-    let cancelled = false;
-    // queueMicrotask keeps the loader's synchronous state flips out of the
-    // effect body (react-hooks/set-state-in-effect; SessionsPage idiom).
-    queueMicrotask(() => {
-      if (!cancelled) loadWindow();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadWindow, refreshToken]);
-
-  const loadOlder = useCallback(() => {
-    if (!sessionId || loadingOlder) return;
-    const seq = ++requestSeq.current;
-    setLoadingOlder(true);
-    api
-      .getSessionMessagesPage(
-        sessionId,
-        { offset: threadPageOffset(pagesLenRef.current), limit: THREAD_TRANSCRIPT_PAGE_SIZE },
-        profile,
-      )
-      .then((res) => {
-        if (seq !== requestSeq.current) return;
-        setPages((prev) => [res.messages, ...prev]);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if (seq !== requestSeq.current) return;
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (seq !== requestSeq.current) return;
-        setLoadingOlder(false);
-      });
-  }, [sessionId, profile, loadingOlder]);
-
-  // Follow the newest turn: a refreshed transcript scrolls to the bottom for
-  // a viewer who was already there.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || collapsed || !pinnedRef.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages, collapsed]);
-
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    pinnedRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX;
-  };
 
   return (
     <div className="flex min-w-0 flex-col border border-current/15">
