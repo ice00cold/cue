@@ -68,6 +68,37 @@ vi.mock("@/lib/api", () => ({
   api: apiMocks,
   setManagementProfile: vi.fn(),
   getManagementProfile: vi.fn(() => ""),
+  // The M4 interaction band's lib (thread-interactions.ts) rides the same
+  // transport; its loads answer empty so the Thread tests stay about the
+  // earlier milestones' surfaces.
+  fetchJSON: vi.fn(async () => ({
+    profile: "default",
+    pending: [],
+    pending_count: 0,
+    session_id: null,
+    exists: false,
+    status_line: "",
+    state: null,
+  })),
+}));
+
+// Approvals socket stub: the M4 band's hook connects a sidecar; the Thread
+// tests never drive a request through it.
+vi.mock("@/lib/gatewayClient", () => ({
+  GatewayClient: class {
+    onRequest() {
+      return () => {};
+    }
+    on() {
+      return () => {};
+    }
+    onState(handler: (state: string) => void) {
+      handler("open");
+      return () => {};
+    }
+    connect = vi.fn(async () => undefined);
+    close = vi.fn();
+  },
 }));
 vi.mock("@/lib/eventsFeedClient", () => ({
   EventsFeedClient: class {
@@ -355,5 +386,44 @@ describe("ThreadPage", () => {
 
     await waitFor(() => expect(container.textContent).toContain("No thread yet"));
     expect(liveTailMock.streamSessionLiveTail).not.toHaveBeenCalled();
+  });
+
+  it("renders the M4 interaction band: decision cards from the thread's queue", async () => {
+    apiMocks.getMainThread.mockResolvedValue(structuredClone(MAIN_THREAD));
+    apiMocks.getSessionMessagesPage.mockResolvedValue(
+      messagesPage(["the thread the cards complement"], [1]),
+    );
+    const { fetchJSON } = await import("@/lib/api");
+    vi.mocked(fetchJSON).mockImplementation(async (url: unknown) => {
+      if (String(url).startsWith("/api/decisions")) {
+        return {
+          profile: "default",
+          pending: [
+            {
+              id: "d1",
+              question: "Which database for the job queue?",
+              context: "",
+              options: [
+                { index: 1, label: "Postgres", impact: "known ops" },
+                { index: 2, label: "SQLite", impact: "zero ops" },
+              ],
+              recommendation: "Postgres",
+              impact: "",
+              status: "pending",
+              created_at: "",
+            },
+          ],
+          pending_count: 1,
+        };
+      }
+      return { profile: "default", session_id: null, exists: false, status_line: "", state: null };
+    });
+    await renderThreadPage();
+
+    await waitFor(() => expect(container.textContent).toContain("Which database for the job queue?"));
+    expect(container.querySelector('[data-testid="decision-cards"]')).not.toBeNull();
+    // The band sits above the transcript: interaction from the surface, with
+    // the reply landing in the thread it complements.
+    expect(container.textContent).toContain("the thread the cards complement");
   });
 });
