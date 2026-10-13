@@ -114,9 +114,6 @@ vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
 vi.mock("@/components/ChatSidebar", () => ({
   ChatSidebar: () => null,
 }));
-vi.mock("@/components/ChatSessionList", () => ({
-  ChatSessionList: () => null,
-}));
 vi.mock("@/components/Backdrop", () => ({ Backdrop: () => null }));
 vi.mock("@/plugins", () => ({
   PluginSlot: () => null,

@@ -32,11 +32,10 @@ import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { ChatSidebar } from "@/components/ChatSidebar";
-import { ChatSessionList } from "@/components/ChatSessionList";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
-import { readStoredWorkspace, writeStoredWorkspace } from "@/lib/chat-workspaces";
+import { readStoredWorkspace } from "@/lib/chat-workspaces";
 import { latchChatActivation } from "@/lib/chat-activation";
 import { readChatPanelCollapsed, toggleChatPanelCollapsed } from "@/lib/chat-panel-collapsed";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -289,8 +288,8 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // tabs because the dep wouldn't change on tab switch.
   const [mobilePanelOpenRaw, setMobilePanelOpenRaw] = useState(false);
   const mobilePanelOpen = isActive && mobilePanelOpenRaw;
-  // Collapse toggle for the desktop chat side panel (model + sessions),
-  // persisted in localStorage so the choice survives reloads.
+  // Collapse toggle for the desktop chat side panel (model box), persisted
+  // in localStorage so the choice survives reloads.
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(
     readChatPanelCollapsed,
   );
@@ -331,27 +330,6 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // management profile. Changing it remounts the terminal (key below /
   // effect dep) so the user explicitly starts a fresh scoped session.
   const { profile: scopedProfile } = useProfileScope();
-  // Workspace a FRESH chat starts in (`/api/pty?cwd=`), persisted per
-  // management profile (a phone remembers the repo it drives). The connect
-  // effect reads storage directly, so changing the picker never respawns the
-  // live PTY: it applies on the next "New chat".
-  const [workspaceCwd, setWorkspaceCwdState] = useState(() =>
-    readStoredWorkspace(scopedProfile),
-  );
-  const setWorkspaceCwd = useCallback(
-    (next: string) => {
-      writeStoredWorkspace(scopedProfile, next);
-      setWorkspaceCwdState(next);
-    },
-    [scopedProfile],
-  );
-  // Profile switch: show that profile's remembered workspace (state, not an
-  // effect, so no cascading render).
-  const [workspaceProfile, setWorkspaceProfile] = useState(scopedProfile);
-  if (workspaceProfile !== scopedProfile) {
-    setWorkspaceProfile(scopedProfile);
-    setWorkspaceCwdState(readStoredWorkspace(scopedProfile));
-  }
   const channel = useMemo(
     () => generateChannelId(`${resumeParam ?? ""}\0${scopedProfile}`),
     [resumeParam, scopedProfile],
@@ -1809,7 +1787,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
               "border-t border-current/10",
             )}
           >
-            <div className="border-b border-current/10 px-1 py-2">
+            <div className="px-1 py-2">
               <ChatSidebar
                 channel={channel}
                 profile={scopedProfile}
@@ -1817,15 +1795,6 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
                 onSessionTitleChange={handleSessionTitleChange}
               />
             </div>
-            <ChatSessionList
-              activeSessionId={resumeParam}
-              isActive={isActive}
-              profile={scopedProfile}
-              onPicked={closeMobilePanel}
-              onNewChat={startFreshDashboardChat}
-              workspaceCwd={workspaceCwd}
-              onWorkspaceChange={setWorkspaceCwd}
-            />
           </div>
         </div>
       </>,
@@ -1959,7 +1928,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
             <Button
               ghost
               onClick={toggleChatPanel}
-              title="Show side panel (model + sessions)"
+              title="Show side panel (model)"
               aria-label="Show chat side panel"
               className={cn(
                 "absolute z-10",
@@ -2002,24 +1971,12 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
               </Button>
             </div>
             {/* Model picker — keeps the rail thin. */}
-            <div className="shrink-0">
+            <div className="min-h-0 flex-1">
               <ChatSidebar
                 channel={channel}
                 profile={scopedProfile}
                 onDashboardNewSessionRequest={startFreshDashboardChat}
                 onSessionTitleChange={handleSessionTitleChange}
-              />
-            </div>
-
-            {/* Session switcher fills the remaining height below the model box. */}
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ChatSessionList
-                activeSessionId={resumeParam}
-                isActive={isActive}
-                profile={scopedProfile}
-                onNewChat={startFreshDashboardChat}
-                workspaceCwd={workspaceCwd}
-                onWorkspaceChange={setWorkspaceCwd}
               />
             </div>
           </div>
