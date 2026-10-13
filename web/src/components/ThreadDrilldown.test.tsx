@@ -22,6 +22,30 @@ const apiMocks = vi.hoisted(() => ({
   getSessionMessagesPage: vi.fn(),
 }));
 
+// M3 live tail: the streaming client is the seam the pane tests drive — the
+// mock captures the last `onEvent` and stays "open" forever so unmount paths
+// never race a resolution.
+const liveTailMock = vi.hoisted(() => {
+  const state = {
+    onEvent: null as ((event: unknown) => void) | null,
+    calls: [] as Array<Record<string, unknown>>,
+  };
+  return {
+    state,
+    streamSessionLiveTail: vi.fn(
+      async (opts: { onEvent: (event: unknown) => void }) => {
+        state.onEvent = opts.onEvent;
+        state.calls.push(opts);
+        return new Promise<string>(() => {});
+      },
+    ),
+  };
+});
+
+vi.mock("@/lib/liveTailClient", () => ({
+  streamSessionLiveTail: liveTailMock.streamSessionLiveTail,
+}));
+
 vi.mock("@/lib/api", () => ({
   api: apiMocks,
 }));import type { MainThreadResponse } from "@/lib/api";
@@ -173,6 +197,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   transcriptMock.rendered = [];
   navMock.search = "";
+  liveTailMock.state.onEvent = null;
+  liveTailMock.state.calls.length = 0;
   apiMocks.getSessionLineage.mockResolvedValue(structuredClone(LINEAGE));
   apiMocks.getDelegations.mockResolvedValue(structuredClone(DELEGATIONS));
   apiMocks.getCronJobs.mockResolvedValue(structuredClone(JOBS));
@@ -225,6 +251,83 @@ describe("ThreadDrilldown", () => {
       { offset: 0, limit: 200 },
       "",
     );
+  });
+
+  it("streams a RUNNING worker's transcript live while it works (M3)", async () => {
+    await renderDrilldown();
+    await waitFor(() => expect(container.textContent).toContain("Scout worker"));
+
+    // Scout worker is is_active in the lineage fixture: expanding it opens a
+    // live pane anchored at its loaded window's newest row.
+    await click([...container.querySelectorAll("button")].find((b) =>
+      b.textContent === "Scout worker"));
+    await waitFor(() => expect(transcriptMock.rendered).toEqual(["scout report"]));
+    await waitFor(() => expect(liveTailMock.state.calls.length).toBe(1));
+    expect(liveTailMock.state.calls[0]).toMatchObject({
+      sessionId: "worker-2",
+      afterRowId: 1,
+    });
+
+    await act(async () => {
+      liveTailMock.state.onEvent?.({
+        type: "hello",
+        session_id: "worker-1",
+        live_session_id: "worker-2",
+        profile: "default",
+        after_row_id: 1,
+        activity: {
+          last_activity_at: Date.now() / 1000,
+          last_activity_description: "reading the repo",
+          ended_at: null,
+          end_reason: null,
+          message_count: 13,
+          tool_call_count: 4,
+          is_active: true,
+        },
+      });
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="transcript-live"]')).not.toBeNull(),
+    );
+
+    await act(async () => {
+      liveTailMock.state.onEvent?.({
+        type: "messages",
+        session_id: "worker-2",
+        messages: [{ id: 14, role: "assistant", content: "worker streamed row" }],
+        last_row_id: 14,
+      });
+    });
+    await waitFor(() => expect(transcriptMock.rendered).toEqual([
+      "scout report", "worker streamed row",
+    ]));
+  });
+
+  it("keeps an idle child's pane read-only: no live tail when the worker is not running", async () => {
+    await renderDrilldown();
+    await waitFor(() => expect(container.textContent).toContain("Scout worker"));
+
+    // Expand the active worker first so its nested grandchild row renders.
+    await click([...container.querySelectorAll("button")].find((b) =>
+      b.textContent === "Scout worker"));
+    await waitFor(() => expect(container.textContent).toContain("Subagent"));
+    expect(liveTailMock.state.calls.length).toBe(1);
+    // Collapse it again so its tail closes…
+    await click([...container.querySelectorAll("button")].find((b) =>
+      b.textContent === "Scout worker"));
+    await waitFor(() => expect(liveTailMock.state.calls.length).toBe(1));
+
+    // …and open the IDLE grandchild: transcript pages, no tail connects.
+    await click([...container.querySelectorAll("button")].find((b) =>
+      b.textContent === "Subagent"));
+    await waitFor(() => expect(apiMocks.getSessionMessagesPage).toHaveBeenCalledWith(
+      "worker-1a",
+      { offset: 0, limit: 200 },
+      "",
+    ));
+    expect(liveTailMock.state.calls.length).toBe(1);
+    expect(liveTailMock.state.calls[0]).toMatchObject({ sessionId: "worker-2" });
+    expect(container.querySelector('[data-testid="transcript-live"]')).toBeNull();
   });
 
   it("routes the terminal affordance to the resumed embedded TUI", async () => {

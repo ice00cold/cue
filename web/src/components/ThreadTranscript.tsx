@@ -6,7 +6,9 @@
  * chrome: collapse toggle, count, follow-scroll and the honest empty states.
  * Not a chat surface: no composer, no send path — interaction belongs to the
  * embedded TUI below this pane (web/AGENTS.md). Refresh signal comes from the
- * page (sessions.changed-driven).
+ * page (sessions.changed-driven). M3 (R3): the pane is live — streamed rows
+ * append as the thread runs anywhere (gateway, cron, proactive), with the
+ * tail's activity stamp surfacing what it is doing right now.
  */
 
 import { useState } from "react";
@@ -15,6 +17,7 @@ import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { MessageList } from "@/components/SessionMessageList";
 import { usePagedTranscript } from "@/hooks/usePagedTranscript";
+import type { LiveTailActivity } from "@/lib/live-tail";
 
 const COLLAPSED_KEY = "cue-thread-transcript-collapsed";
 
@@ -26,19 +29,52 @@ function readCollapsed(): boolean {
   }
 }
 
+/** Live-tail status chip: connected = the pane is streaming this session. */
+export function LiveTailBadge({
+  state,
+  activity,
+}: {
+  state: string;
+  activity: LiveTailActivity | null;
+}) {
+  if (state !== "open") return null;
+  const description = activity?.last_activity_description ?? null;
+  return (
+    <span
+      data-testid="transcript-live"
+      className="flex shrink-0 items-center gap-1 text-xs text-text-tertiary"
+      title={
+        description
+          ? `Live — ${description}`
+          : "Live: new turns stream in as they land"
+      }
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${activity?.is_active ? "animate-pulse bg-success" : "bg-success/60"}`}
+        aria-hidden="true"
+      />
+      live
+    </span>
+  );
+}
+
 export function ThreadTranscript({
   sessionId,
   profile,
   refreshToken,
+  live = false,
 }: {
   sessionId: string | null;
   profile: string | undefined;
   refreshToken: number;
+  /** Watch the thread live (M3/R3) — the Thread home passes true. */
+  live?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const {
     messages, loading, loadingOlder, error, canLoadOlder, loadOlder, scrollRef, onScroll,
-  } = usePagedTranscript({ sessionId, profile, refreshToken });
+    liveState, liveActivity,
+  } = usePagedTranscript({ sessionId, profile, refreshToken, live });
 
   const toggleCollapsed = () =>
     setCollapsed((prev) => {
@@ -58,6 +94,9 @@ export function ThreadTranscript({
         <span className="font-sans text-display text-xs tracking-wider text-text-tertiary">
           Transcript
         </span>
+        {live && (
+          <LiveTailBadge state={liveState} activity={liveActivity} />
+        )}
         <span className="text-xs text-text-tertiary tabular-nums">
           {sessionId ? `${messages.length} shown` : ""}
         </span>

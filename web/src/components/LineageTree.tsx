@@ -4,9 +4,11 @@
  * One row per node (flattened document order, indent = nesting depth): kind,
  * title/goal, activity, volume; a row expands its inline transcript (the
  * shared paged reader over the existing messages endpoint) or opens the
- * session in the embedded TUI via `/chat?resume=`. Sessions whose cwd is an
- * OpenChamber-managed opencode worktree get an external OC link — OC renders
- * those natively and Cue does not re-render them (PHASE6-ARCHITECTURE.md).
+ * session in the embedded TUI via `/chat?resume=`. A RUNNING child's inline
+ * transcript is live (M3/R3): streamed rows append while the worker works.
+ * Sessions whose cwd is an OpenChamber-managed opencode worktree get an
+ * external OC link — OC renders those natively and Cue does not re-render
+ * them (PHASE6-ARCHITECTURE.md).
  */
 
 import { ChevronDown, ChevronRight, ExternalLink, Terminal } from "lucide-react";
@@ -115,6 +117,7 @@ function LineageRow({
           title={node.title}
           profile={profile}
           onOpenInTerminal={() => onOpenInTerminal(node.session_id)}
+          live={node.is_active}
         />
       )}
     </li>

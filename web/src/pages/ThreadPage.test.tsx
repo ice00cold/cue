@@ -16,6 +16,30 @@ const apiMocks = vi.hoisted(() => ({
   getActiveProfile: vi.fn(async () => ({ current: "default", active: "default" })),
 }));
 
+// M3 live tail: the streaming client is the seam the pane tests drive — the
+// mock captures the last `onEvent` and stays "open" forever so unmount paths
+// never race a resolution.
+const liveTailMock = vi.hoisted(() => {
+  const state = {
+    onEvent: null as ((event: unknown) => void) | null,
+    calls: [] as Array<Record<string, unknown>>,
+  };
+  return {
+    state,
+    streamSessionLiveTail: vi.fn(
+      async (opts: { onEvent: (event: unknown) => void }) => {
+        state.onEvent = opts.onEvent;
+        state.calls.push(opts);
+        return new Promise<string>(() => {});
+      },
+    ),
+  };
+});
+
+vi.mock("@/lib/liveTailClient", () => ({
+  streamSessionLiveTail: liveTailMock.streamSessionLiveTail,
+}));
+
 // Passthrough stubs so assertions see exactly what the data layer produced.
 const transcriptMock = vi.hoisted(() => ({ rendered: [] as string[] }));
 const feedMocks = vi.hoisted(() => {
@@ -149,6 +173,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   feedMocks.handlers.clear();
   transcriptMock.rendered = [];
+  liveTailMock.state.onEvent = null;
+  liveTailMock.state.calls.length = 0;
   // The M2 drill-down shares this page: its three loads answer empty so the
   // Thread tests stay about the M1 surfaces.
   apiMocks.getSessionLineage.mockResolvedValue({
@@ -256,5 +282,78 @@ describe("ThreadPage", () => {
       emit?.({ type: "sessions.changed", payload: {} });
     });
     await waitFor(() => expect(apiMocks.getMainThread).toHaveBeenCalledTimes(2));
+  });
+
+  it("is live: streamed rows append to the transcript with the tail's activity (M3)", async () => {
+    apiMocks.getMainThread.mockResolvedValue(structuredClone(MAIN_THREAD));
+    apiMocks.getSessionMessagesPage.mockResolvedValue(messagesPage(["latest turn"], [7]));
+    await renderThreadPage();
+    await waitFor(() => expect(transcriptMock.rendered).toContain("latest turn"));
+
+    // The tail connects once a window has landed, anchored at its newest row.
+    await waitFor(() => expect(liveTailMock.state.calls.length).toBe(1));
+    expect(liveTailMock.state.calls[0]).toMatchObject({
+      sessionId: "sess-tip",
+      afterRowId: 7,
+    });
+    // A window refresh (sessions.changed) must not re-open the stream: the
+    // cursor only ever advances.
+    feedMocks.handlers.get("sessions.changed")?.({ type: "sessions.changed", payload: {} });
+    await waitFor(() => expect(apiMocks.getMainThread).toHaveBeenCalledTimes(2));
+    expect(liveTailMock.state.calls.length).toBe(1);
+
+    const emit = (event: unknown) =>
+      act(async () => {
+        liveTailMock.state.onEvent?.(event);
+      });
+
+    await emit({
+      type: "hello",
+      session_id: "sess-root",
+      live_session_id: "sess-tip",
+      profile: "default",
+      after_row_id: 7,
+      activity: {
+        last_activity_at: Date.now() / 1000,
+        last_activity_description: "running terminal tools",
+        ended_at: null,
+        end_reason: null,
+        message_count: 215,
+        tool_call_count: 4,
+        is_active: true,
+      },
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="transcript-live"]')).not.toBeNull(),
+    );
+    expect(
+      container.querySelector('[data-testid="transcript-live"]')?.getAttribute("title"),
+    ).toContain("running terminal tools");
+
+    await emit({
+      type: "messages",
+      session_id: "sess-tip",
+      messages: [{ id: 9, role: "assistant", content: "streamed turn" }],
+      last_row_id: 9,
+    });
+    await waitFor(() => expect(transcriptMock.rendered).toContain("streamed turn"));
+    // Appended after the loaded window, never replacing it.
+    expect(transcriptMock.rendered).toEqual(["latest turn", "streamed turn"]);
+  });
+
+  it("opens no live tail before the thread exists", async () => {
+    apiMocks.getMainThread.mockResolvedValue({
+      profile: "default",
+      session_key: "agent:main:main-thread",
+      session_id: null,
+      live_session_id: null,
+      exists: false,
+      is_active: false,
+      session: null,
+    });
+    await renderThreadPage();
+
+    await waitFor(() => expect(container.textContent).toContain("No thread yet"));
+    expect(liveTailMock.streamSessionLiveTail).not.toHaveBeenCalled();
   });
 });
