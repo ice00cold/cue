@@ -34,7 +34,7 @@ export function resolvePageTitle(
 ): string {
   const normalized = pathname.replace(/\/$/, "") || "/";
   if (normalized === "/") {
-    return t.app.nav.sessions;
+    return "Thread";
   }
   const plugin = pluginTabs.find((p) => p.path === normalized);
   if (plugin) {

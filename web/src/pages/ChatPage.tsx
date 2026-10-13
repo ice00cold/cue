@@ -24,6 +24,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
+import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
 import { cn } from "@/lib/utils";
 import { PanelRight, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +40,7 @@ import { readStoredWorkspace, writeStoredWorkspace } from "@/lib/chat-workspaces
 import { latchChatActivation } from "@/lib/chat-activation";
 import { readChatPanelCollapsed, toggleChatPanelCollapsed } from "@/lib/chat-panel-collapsed";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { registerClipboardOsc52 } from "@/lib/pty-clipboard-osc52";
 import { normalizeSessionTitle } from "@/lib/chat-title";
 import { createPtyCompositionForwarder } from "@/lib/pty-composition";
 import { shouldRestoreTerminalFocus } from "@/lib/pty-focus";
@@ -98,6 +100,7 @@ import {
   TERMINAL_FONT_FAMILY,
 } from "@/lib/terminal-font-refit";
 import { generateChannelId } from "@/lib/chat-channel-id";
+import { setLiveChatChannel } from "@/lib/chat-channel-store";
 import { sendCopyLastCommand } from "@/lib/chat-copy-last";
 import { CopyLastButton } from "@/lib/chat-copy-last-button";
 import {
@@ -308,11 +311,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   const [portalRoot] = useState<HTMLElement | null>(() =>
     typeof document !== "undefined" ? document.body : null,
   );
-  const [narrow, setNarrow] = useState(() =>
-    typeof window !== "undefined"
-      ? window.matchMedia("(max-width: 1023px)").matches
-      : false,
-  );
+  const narrow = useBelowBreakpoint(1024);
 
   const { theme } = useTheme();
   const terminalBg = theme.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND;
@@ -357,6 +356,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     () => generateChannelId(`${resumeParam ?? ""}\0${scopedProfile}`),
     [resumeParam, scopedProfile],
   );
+  useEffect(() => setLiveChatChannel(channel), [channel]);
   const titleScope = `${channel}\0${reconnectNonce}`;
   const sessionTitle =
     sessionTitleState.scope === titleScope ? sessionTitleState.title : null;
@@ -421,14 +421,6 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   }, [resumeParam, scopedProfile, searchParams, setSearchParams]);
 
   useEffect(() => {
-    const mql = window.matchMedia("(max-width: 1023px)");
-    const sync = () => setNarrow(mql.matches);
-    sync();
-    mql.addEventListener("change", sync);
-    return () => mql.removeEventListener("change", sync);
-  }, []);
-
-  useEffect(() => {
     if (!mobilePanelOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeMobilePanel();
@@ -442,14 +434,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     };
   }, [mobilePanelOpen, closeMobilePanel]);
 
+  // Crossing into the desktop layout force-closes the mobile side sheet.
   useEffect(() => {
-    const mql = window.matchMedia("(min-width: 1024px)");
-    const onChange = (e: MediaQueryListEvent) => {
-      if (e.matches) setMobilePanelOpenRaw(false);
-    };
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, []);
+    if (!narrow) setMobilePanelOpenRaw(false);
+  }, [narrow]);
 
   useLayoutEffect(() => {
     // When hidden (non-chat tab) another page owns the header's end slot.
@@ -551,9 +539,9 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     //   1. **Selection → Ctrl+C (or Cmd+C on macOS).**  Ink's own handler
     //      in useInputHandlers.ts turns Ctrl+C into a copy when the
     //      terminal has a selection, then emits an OSC 52 escape.  Our
-    //      OSC 52 handler below decodes that escape and writes to the
-    //      browser clipboard — so the flow works just like it does in
-    //      `hermes --tui`.
+    //      OSC 52 handler (pty-clipboard-osc52.ts) decodes that escape and
+    //      writes to the browser clipboard — so the flow works just like it
+    //      does in `hermes --tui`.
     //
     //   2. **Ctrl/Cmd+Shift+C.**  Belt-and-suspenders shortcut that
     //      operates directly on xterm's selection, useful if the TUI
@@ -573,30 +561,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     // OSC 52 reads (terminal asking to read the clipboard) are not
     // supported — that would let any content the TUI renders exfiltrate
     // the user's clipboard.
-    term.parser.registerOscHandler(52, (data) => {
-      // Format: "<targets>;<base64 | '?'>"
-      const semi = data.indexOf(";");
-      if (semi < 0) return false;
-      const payload = data.slice(semi + 1);
-      if (payload === "?" || payload === "") return false; // read/clear — ignore
-      try {
-        const binary = atob(payload);
-        const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-        const text = new TextDecoder("utf-8").decode(bytes);
-        // copyTextToClipboard falls back to a selection-based copy when the
-        // Clipboard API is unavailable (plain-HTTP deployments) or when the
-        // write is rejected — e.g. the OSC 52 response arriving outside the
-        // original keydown event's activation ("user gesture" requirement).
-        void copyTextToClipboard(text).then((copied) => {
-          if (!copied) {
-            console.warn("[dashboard clipboard] OSC 52 write failed");
-          }
-        });
-      } catch {
-        console.warn("[dashboard clipboard] malformed OSC 52 payload");
-      }
-      return true;
-    });
+    registerClipboardOsc52(term.parser);
 
     const isMac =
       typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);

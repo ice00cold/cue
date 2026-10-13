@@ -97,7 +97,7 @@ interface CompactionSplit {
   remainder: string;
 }
 
-export function splitCompactionContent(content: string): CompactionSplit | null {
+function splitCompactionContent(content: string): CompactionSplit | null {
   const head = content.trimStart();
   if (!COMPACTION_PREFIXES.some((p) => head.startsWith(p))) return null;
   const markerIdx = content.indexOf(COMPACTION_END_MARKER);
@@ -258,28 +258,43 @@ function MessageBubble({
 export function MessageList({
   messages,
   highlight,
+  className,
+  containerRef,
+  onScroll,
 }: {
   messages: SessionMessage[];
   highlight?: string;
+  /** Height/scroll overrides for embedding surfaces (defaults to the
+   * SessionsPage look: max-h-[600px]). */
+  className?: string;
+  /** Ref to the scrolling container, for embedding surfaces that drive
+   * follow-scroll on their own refresh cadence. */
+  containerRef?: React.RefObject<HTMLDivElement | null>;
+  onScroll?: React.UIEventHandler<HTMLDivElement>;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const ownRef = useRef<HTMLDivElement>(null);
+  const ref = containerRef ?? ownRef;
 
   useEffect(() => {
-    if (!highlight || !containerRef.current) return;
+    if (!highlight || !ref.current) return;
     // Scroll to first hit after render
     const timer = setTimeout(() => {
-      const hit = containerRef.current?.querySelector("[data-search-hit]");
+      const hit = ref.current?.querySelector("[data-search-hit]");
       if (hit) {
         hit.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     }, 50);
     return () => clearTimeout(timer);
-  }, [messages, highlight]);
+  }, [messages, highlight, ref]);
 
   return (
     <div
-      ref={containerRef}
-      className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-2"
+      ref={ref}
+      onScroll={onScroll}
+      className={
+        className ??
+        "flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-2"
+      }
     >
       {messages.map((msg, i) => (
         <MessageBubble key={i} msg={msg} highlight={highlight} />
